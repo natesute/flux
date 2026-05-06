@@ -42,6 +42,25 @@ impl Engine {
         })
     }
 
+    /// Rebuild the cooked graph in place from a (presumably reloaded)
+    /// project. Used by the preview window's hot-reload path: GPU device,
+    /// surface, and blit pipeline all stay alive across the swap. If
+    /// graph construction fails (bad RON, shader compile error, etc.)
+    /// the engine is left untouched and the error is returned for the
+    /// caller to log.
+    ///
+    /// Feedback node history is **not** preserved across rebuilds yet —
+    /// trails will restart on every reload. Tracked as a follow-up.
+    pub fn rebuild_graph(&mut self, project: &Project) -> Result<()> {
+        let graph = Graph::from_project(project, &self.gpu)?;
+        self.graph = graph;
+        self.width = project.width;
+        self.height = project.height;
+        self.fps = project.fps;
+        self.tone_map = project.tone_map;
+        Ok(())
+    }
+
     /// Cook one frame and return a borrow of the output texture. The
     /// preview loop calls this once per redraw, then blits the texture to
     /// the surface; offline rendering uses `render_to_file` instead.

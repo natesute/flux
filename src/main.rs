@@ -123,7 +123,7 @@ fn main() -> Result<()> {
         Command::Preview { project, audio } => {
             let proj = flux::Project::load(&project)
                 .with_context(|| format!("loading project {}", project.display()))?;
-            flux::preview::run(&proj, &proj.source_dir, &audio)?;
+            flux::preview::run(&proj, &project, &audio)?;
         }
     }
 

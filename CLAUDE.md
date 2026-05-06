@@ -86,8 +86,22 @@ Each node should have a unit test that cooks it with a deterministic input and s
 - **Add new top-level dependencies to Cargo.toml.** Prefer using what's there. If a new dep is genuinely needed, propose it first.
 - **Change the project file schema.** This breaks all existing projects.
 - **Refactor multiple modules at once.** One concern per PR/change.
-- **Add a GUI.** This is a CLI-first tool by design. A GUI is a separate, optional companion project, not part of the core.
 - **Replace WGSL with GLSL** or wgpu with another GPU API. The stack is chosen.
+
+## On the GUI
+
+A GUI is welcome. It must be in-process Rust (egui or similar) so it shares the wgpu device with the engine — no IPC, no separate language, no per-frame copy through the OS. Anything that adds latency between "user moves slider" and "preview pixel changes" is the wrong shape. Live param tweaks should land in the running engine on the next frame.
+
+## Agent-edit workflow
+
+When the user is running `flux preview <project>`, the project file and every file it references (custom shader `.wgsl`, color-grade LUT PNGs) are watched: any edit to any of them causes the engine's graph to rebuild in place within ~100 ms. **This means an agent can edit a `.ron` or shader file and the user sees the change immediately, no commands needed.**
+
+If you're collaborating with the user on visuals while their preview window is open:
+
+- Edit `.ron` and shader files freely. The preview reloads on save.
+- Don't run `flux render` or `flux preview` yourself; the user has the window open. Just edit the source.
+- If the user reports the preview didn't update, the most likely cause is a parse or compile error — check `tracing` logs. The engine keeps the old graph on reload failure, so edits with errors don't crash the window.
+- Feedback node history is currently lost on reload. Pieces relying on long trails will visibly restart.
 
 ## What agents should freely do
 

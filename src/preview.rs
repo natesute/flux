@@ -1,11 +1,22 @@
 //! `flux preview` — live preview window. Drives the engine cook loop at
 //! the project's framerate, blits each frame to the surface with tone
-//! mapping baked in. Audio playback isn't wired yet (v1 just reads the
-//! audio file for features); time wraps so loops loop.
+//! mapping baked in.
+//!
+//! ## Hot reload
+//!
+//! The preview watches the project file and every file it references
+//! (custom shader paths, color-grade LUTs). Every ~100 ms the main loop
+//! polls their modification times; on change, the engine's graph is
+//! rebuilt in place — same GPU device, same surface, same blit pipeline.
+//! That makes "agent edits a file → preview reflects it" a sub-second
+//! loop with no IPC and no separate process.
+//!
+//! Audio playback isn't wired yet (v1 reads the file for features only);
+//! wall-clock time wraps so loops loop.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
 use bytemuck::{Pod, Zeroable};
@@ -20,12 +31,12 @@ use crate::engine::{Engine, GpuContext};
 use crate::project::{Project, ToneMap};
 
 /// Open a window and render `project` in real time. Blocks until the user
-/// closes the window. The project's `source_dir` is used by nodes that
-/// load sibling files (e.g. `custom_shader`) — set it via
-/// `Project::load`, not by constructing a `Project` in memory.
-pub fn run(project: &Project, _project_dir: &Path, audio_path: &Path) -> Result<()> {
+/// closes the window. `project_path` is the file the project was loaded
+/// from; the preview watches it (and any files it references) for changes
+/// and hot-reloads the graph when they're edited.
+pub fn run(project: &Project, project_path: &Path, audio_path: &Path) -> Result<()> {
     let event_loop = EventLoop::new().context("creating event loop")?;
-    let mut app = PreviewApp::new(project, audio_path)?;
+    let mut app = PreviewApp::new(project, project_path, audio_path)?;
     event_loop.run_app(&mut app).context("running event loop")?;
     Ok(())
 }
@@ -51,26 +62,120 @@ struct GraphicsState {
 
 struct PreviewApp {
     project: Project,
+    project_path: PathBuf,
     audio: AudioTrack,
     engine: Option<Engine>,
     graphics: Option<GraphicsState>,
     start: Instant,
     audio_duration: f32,
+
+    /// Files whose modification time we poll for hot-reload. Always
+    /// includes `project_path`; gains entries for any node that loads
+    /// a sibling file (custom_shader, color_grade with a path).
+    tracked: Vec<TrackedFile>,
+    last_reload_check: Instant,
+}
+
+struct TrackedFile {
+    path: PathBuf,
+    mtime: Option<SystemTime>,
+}
+
+impl TrackedFile {
+    fn from_path(path: PathBuf) -> Self {
+        let mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+        Self { path, mtime }
+    }
 }
 
 impl PreviewApp {
-    fn new(project: &Project, audio_path: &Path) -> Result<Self> {
+    fn new(project: &Project, project_path: &Path, audio_path: &Path) -> Result<Self> {
         let audio = AudioTrack::load(audio_path)?;
         let audio_duration = audio.duration_seconds().max(0.001);
+        let tracked = collect_tracked_files(project, project_path);
         Ok(Self {
             project: project.clone(),
+            project_path: project_path.to_path_buf(),
             audio,
             engine: None,
             graphics: None,
             start: Instant::now(),
             audio_duration,
+            tracked,
+            last_reload_check: Instant::now(),
         })
     }
+
+    /// If any tracked file's mtime advanced since the last check, attempt
+    /// to reload the project and rebuild the graph in place. On failure
+    /// the existing engine is left untouched and the error is logged —
+    /// half-saved files don't crash the preview.
+    fn maybe_reload(&mut self) {
+        let now = Instant::now();
+        if now.duration_since(self.last_reload_check) < Duration::from_millis(100) {
+            return;
+        }
+        self.last_reload_check = now;
+
+        let mut changed = false;
+        for tf in &mut self.tracked {
+            let new_mtime = std::fs::metadata(&tf.path).and_then(|m| m.modified()).ok();
+            if new_mtime != tf.mtime {
+                tf.mtime = new_mtime;
+                changed = true;
+            }
+        }
+        if !changed {
+            return;
+        }
+
+        let new_project = match Project::load(&self.project_path) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!("hot reload: project parse failed, keeping old: {e:#}");
+                return;
+            }
+        };
+
+        let Some(engine) = self.engine.as_mut() else {
+            return;
+        };
+        match engine.rebuild_graph(&new_project) {
+            Ok(()) => {
+                tracing::info!(
+                    "hot reload: rebuilt graph from {}",
+                    self.project_path.display()
+                );
+                // Pick up any new file deps (e.g. user added a custom_shader).
+                self.tracked = collect_tracked_files(&new_project, &self.project_path);
+                self.project = new_project;
+            }
+            Err(e) => {
+                tracing::warn!("hot reload: graph rebuild failed, keeping old: {e:#}");
+            }
+        }
+    }
+}
+
+/// Walk the project's nodes and return the project file plus every sibling
+/// file the graph depends on. Currently that's `custom_shader` paths and
+/// `color_grade` LUT paths. Adding a new file-loading node? Add it here.
+fn collect_tracked_files(project: &Project, project_path: &Path) -> Vec<TrackedFile> {
+    let mut files = vec![TrackedFile::from_path(project_path.to_path_buf())];
+    for spec in project.nodes.values() {
+        let watch_path = match spec.kind.as_str() {
+            "custom_shader" | "color_grade" => spec
+                .params
+                .get("path")
+                .and_then(|v| v.as_string())
+                .map(|p| project.source_dir.join(p)),
+            _ => None,
+        };
+        if let Some(p) = watch_path {
+            files.push(TrackedFile::from_path(p));
+        }
+    }
+    files
 }
 
 impl ApplicationHandler for PreviewApp {
@@ -130,16 +235,15 @@ impl ApplicationHandler for PreviewApp {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
-        let Some(engine) = self.engine.as_mut() else {
+        if self.engine.is_none() || self.graphics.is_none() {
             return;
-        };
-        let Some(graphics) = self.graphics.as_mut() else {
-            return;
-        };
+        }
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) if size.width > 0 && size.height > 0 => {
+                let engine = self.engine.as_ref().unwrap();
+                let graphics = self.graphics.as_mut().unwrap();
                 graphics.surface_config.width = size.width;
                 graphics.surface_config.height = size.height;
                 graphics
@@ -147,13 +251,19 @@ impl ApplicationHandler for PreviewApp {
                     .configure(&engine.gpu.device, &graphics.surface_config);
             }
             WindowEvent::RedrawRequested => {
+                self.maybe_reload();
+                let tone_map = self.project.tone_map;
+                let start = self.start;
+                let audio_duration = self.audio_duration;
+                let engine = self.engine.as_mut().unwrap();
+                let graphics = self.graphics.as_mut().unwrap();
                 if let Err(e) = render_one(
                     engine,
                     graphics,
                     &self.audio,
-                    self.start,
-                    self.audio_duration,
-                    self.project.tone_map,
+                    start,
+                    audio_duration,
+                    tone_map,
                 ) {
                     tracing::error!("preview render error: {e}");
                     event_loop.exit();
