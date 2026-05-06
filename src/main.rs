@@ -7,7 +7,11 @@ use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
-#[command(name = "flux", version, about = "Code-first audiovisual rendering engine")]
+#[command(
+    name = "flux",
+    version,
+    about = "Code-first audiovisual rendering engine"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -42,9 +46,7 @@ enum Command {
     },
 
     /// Validate a project file without rendering.
-    Check {
-        project: PathBuf,
-    },
+    Check { project: PathBuf },
 
     /// List built-in node types.
     Nodes,
@@ -55,7 +57,13 @@ fn main() -> Result<()> {
     init_tracing(cli.verbose);
 
     match cli.command {
-        Command::Render { project, audio, out, fps, duration } => {
+        Command::Render {
+            project,
+            audio,
+            out,
+            fps,
+            duration,
+        } => {
             let proj = flux::Project::load(&project)
                 .with_context(|| format!("loading project {}", project.display()))?;
             let mut engine = flux::Engine::new(&proj)?;
@@ -64,6 +72,9 @@ fn main() -> Result<()> {
         }
         Command::Check { project } => {
             let proj = flux::Project::load(&project)?;
+            // Full engine init catches param-shape, missing-input, cycle, and
+            // shader-compile errors. It needs a GPU device, same as rendering.
+            let _engine = flux::Engine::new(&proj)?;
             println!("OK — {} nodes, output `{}`", proj.nodes.len(), proj.output);
         }
         Command::Nodes => {

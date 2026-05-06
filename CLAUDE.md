@@ -50,10 +50,12 @@ docs/                  ROADMAP, ARCHITECTURE, NODE_REFERENCE.
 Every node lives in its own file under `src/nodes/`. The minimum is:
 
 1. Define a struct holding the node's parameters and any GPU resources it owns.
-2. Implement `Node` (`cook`, `inputs`, `output_format`).
-3. Register it in `src/nodes/mod.rs`'s `node_from_spec` dispatch.
-4. Add a section to `docs/NODE_REFERENCE.md`.
-5. If it has a shader, put it in `shaders/<node_name>.wgsl`.
+2. Implement `Node` (`cook`, `input_refs`).
+3. In `new()`, load each scalar/color param via `spec.scalar_param(...)?` / `spec.color_param(...)?` so a malformed project fails at `flux check` time, not mid-render.
+4. Register it in `src/nodes/mod.rs`'s `node_from_spec` dispatch and in `registered_names()`.
+5. Add a `#[cfg(test)] mod tests` block with at least one snapshot test using `crate::test_utils::TestHarness`. See `src/nodes/gradient.rs` for the canonical pattern.
+6. Add a section to `docs/NODE_REFERENCE.md`.
+7. If it has a shader, put it in `shaders/<node_name>.wgsl` and follow `docs/SHADER_CONVENTIONS.md`.
 
 Aim for ~100 lines per node file. If a node is getting bigger, it's probably actually multiple nodes.
 

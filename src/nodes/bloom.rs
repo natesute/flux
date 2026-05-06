@@ -56,8 +56,7 @@ impl BloomNode {
                 shader_pass::sampler_entry(2),
             ],
         });
-        let (_module, pipeline) =
-            shader_pass::build_fullscreen_pipeline(gpu, "bloom", SHADER, &bgl);
+        let pipeline = shader_pass::build_fullscreen_pipeline(gpu, "bloom", SHADER, &bgl);
 
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("bloom uniforms"),
@@ -68,21 +67,9 @@ impl BloomNode {
 
         Ok(Self {
             inputs: spec.inputs.clone(),
-            threshold: spec
-                .params
-                .get("threshold")
-                .cloned()
-                .unwrap_or(ParamValue::Number(0.7)),
-            intensity: spec
-                .params
-                .get("intensity")
-                .cloned()
-                .unwrap_or(ParamValue::Number(1.0)),
-            radius: spec
-                .params
-                .get("radius")
-                .cloned()
-                .unwrap_or(ParamValue::Number(4.0)),
+            threshold: spec.scalar_param("threshold", 0.7)?,
+            intensity: spec.scalar_param("intensity", 1.0)?,
+            radius: spec.scalar_param("radius", 4.0)?,
             bgl,
             pipeline,
             uniform_buffer,
@@ -116,26 +103,52 @@ impl Node for BloomNode {
             .queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 
-        let bind_group = ctx.gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("bloom bg"),
-            layout: &self.bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.uniform_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&view_in),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-            ],
-        });
+        let bind_group = ctx
+            .gpu
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("bloom bg"),
+                layout: &self.bgl,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: self.uniform_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&view_in),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                ],
+            });
 
         shader_pass::run_fullscreen_pass(ctx.gpu, "bloom", &self.pipeline, &bind_group, output);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio::FrameAudioFeatures;
+    use crate::test_utils::TestHarness;
+
+    #[test]
+    fn passes_through_below_threshold() {
+        let Some(harness) = TestHarness::try_init(32, 32) else {
+            return;
+        };
+        let spec: NodeSpec = ron::from_str(
+            r#"(type: "bloom", inputs: ["src"], params: { "threshold": 1.0, "intensity": 1.0, "radius": 4.0 })"#,
+        )
+        .unwrap();
+        let mut node = BloomNode::new(&spec, &harness.gpu).unwrap();
+        let src = harness.constant_texture([0.4, 0.4, 0.4, 1.0]);
+        let inputs: &[(String, &wgpu::Texture)] = &[("src".to_string(), &src)];
+        let stats = harness.cook(&mut node, inputs, FrameAudioFeatures::default(), 0.0);
+        insta::assert_snapshot!(stats);
     }
 }

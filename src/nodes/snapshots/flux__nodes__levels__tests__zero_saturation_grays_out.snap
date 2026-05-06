@@ -1,0 +1,8 @@
+---
+source: src/nodes/levels.rs
+expression: stats
+---
+32x32
+mean  R=133.0 G=133.0 B=133.0 A=255.0
+range R=133-133 G=133-133 B=133-133 A=255-255
+nonblack 1024/1024

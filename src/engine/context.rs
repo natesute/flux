@@ -30,7 +30,9 @@ impl GpuContext {
         let info = adapter.get_info();
         tracing::info!(
             "GPU: {} ({:?}, {:?})",
-            info.name, info.device_type, info.backend
+            info.name,
+            info.device_type,
+            info.backend
         );
 
         let (device, queue) = adapter

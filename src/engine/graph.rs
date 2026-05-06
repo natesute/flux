@@ -49,7 +49,8 @@ impl Graph {
                 if !nodes.contains_key(&input) {
                     return Err(anyhow!(
                         "node `{}` references unknown input node `{}`",
-                        name, input
+                        name,
+                        input
                     ));
                 }
             }
@@ -105,10 +106,7 @@ impl Graph {
                 .input_refs()
                 .into_iter()
                 .map(|name| {
-                    let tex = self
-                        .textures
-                        .get(&name)
-                        .expect("validated at graph build");
+                    let tex = self.textures.get(&name).expect("validated at graph build");
                     (name, tex)
                 })
                 .collect();
@@ -198,21 +196,27 @@ fn topo_sort(nodes: &IndexMap<NodeId, BoxedNode>, sink: &str) -> Result<Vec<Node
     Ok(order)
 }
 
-mod readback {
+pub(crate) mod readback {
     use anyhow::Result;
 
     use crate::engine::GpuContext;
 
-    /// Copy a GPU texture into a Vec<u8> of RGBA8 pixels (sRGB-encoded for
-    /// video output).
-    pub fn texture_to_rgba8(
+    /// Copy a GPU texture into a Vec<u8> of RGBA8 pixels, applying Reinhard
+    /// tone mapping and a 2.2 gamma curve so HDR-range values land in the
+    /// 0..255 range FFmpeg expects.
+    pub(crate) fn texture_to_rgba8(
         gpu: &GpuContext,
         texture: &wgpu::Texture,
         width: u32,
         height: u32,
     ) -> Result<Vec<u8>> {
         // wgpu requires buffer rows aligned to COPY_BYTES_PER_ROW_ALIGNMENT (256).
-        let bytes_per_pixel = 8u32; // Rgba16Float
+        // Derive bytes-per-pixel from the format so this stays correct if the
+        // engine's working format changes (e.g. Rgba32Float for deeper HDR).
+        let bytes_per_pixel = texture
+            .format()
+            .block_copy_size(None)
+            .expect("uncompressed format has a fixed copy size");
         let unpadded_bytes_per_row = width * bytes_per_pixel;
         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
         let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align) * align;
@@ -227,7 +231,9 @@ mod readback {
 
         let mut encoder = gpu
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("readback") });
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("readback"),
+            });
         encoder.copy_texture_to_buffer(
             wgpu::ImageCopyTexture {
                 texture,
@@ -268,9 +274,8 @@ mod readback {
                 let px_start = row_start + (x * bytes_per_pixel) as usize;
                 // Each f16 channel is 2 bytes. Convert to u8 with simple
                 // tone mapping (Reinhard) and gamma.
-                let f16_to_f32 = |b: &[u8]| -> f32 {
-                    half::f16::from_le_bytes([b[0], b[1]]).to_f32()
-                };
+                let f16_to_f32 =
+                    |b: &[u8]| -> f32 { half::f16::from_le_bytes([b[0], b[1]]).to_f32() };
                 let r = f16_to_f32(&raw[px_start..px_start + 2]);
                 let g = f16_to_f32(&raw[px_start + 2..px_start + 4]);
                 let b = f16_to_f32(&raw[px_start + 4..px_start + 6]);
@@ -285,7 +290,7 @@ mod readback {
                 out.push(tone(r));
                 out.push(tone(g));
                 out.push(tone(b));
-                out.push((a.clamp(0.0, 1.0) * 255.0) as u8);
+                out.push((a.clamp(0.0, 1.0) * 255.0).round() as u8);
             }
         }
 

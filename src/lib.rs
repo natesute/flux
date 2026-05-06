@@ -9,5 +9,8 @@ pub mod nodes;
 pub mod output;
 pub mod project;
 
+#[cfg(test)]
+pub mod test_utils;
+
 pub use engine::Engine;
 pub use project::Project;

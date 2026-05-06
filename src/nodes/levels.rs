@@ -1,7 +1,7 @@
-//! `blend` — composite two input textures.
+//! `levels` — gain, brightness, contrast, saturation. Per-pixel adjustments.
 //!
-//! Inputs (in order): `a` (background), `b` (foreground/overlay).
-//! Modes: `over`, `add`, `multiply`, `screen`, `mix`.
+//! Order of operations: gain → brightness → contrast → saturation. Identity
+//! values are gain=1, brightness=0, contrast=1, saturation=1.
 
 use anyhow::{anyhow, Result};
 use bytemuck::{Pod, Zeroable};
@@ -11,26 +11,23 @@ use crate::nodes::shader_pass;
 use crate::nodes::Node;
 use crate::project::{NodeSpec, ParamValue};
 
-const SHADER: &str = include_str!("../../shaders/blend.wgsl");
+const SHADER: &str = include_str!("../../shaders/levels.wgsl");
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable, Default)]
 struct Uniforms {
-    mode: u32,
-    _pad0: u32,
-    _pad1: u32,
-    _pad2: u32,
-    factor: f32,
-    opacity: f32,
-    _pad3: f32,
-    _pad4: f32,
+    gain: f32,
+    brightness: f32,
+    contrast: f32,
+    saturation: f32,
 }
 
-pub struct BlendNode {
+pub struct LevelsNode {
     inputs: Vec<String>,
-    mode: u32,
-    factor: ParamValue,
-    opacity: ParamValue,
+    gain: ParamValue,
+    brightness: ParamValue,
+    contrast: ParamValue,
+    saturation: ParamValue,
 
     bgl: wgpu::BindGroupLayout,
     pipeline: wgpu::RenderPipeline,
@@ -38,51 +35,28 @@ pub struct BlendNode {
     sampler: wgpu::Sampler,
 }
 
-fn parse_mode(s: &str) -> Result<u32> {
-    Ok(match s {
-        "over" => 0,
-        "add" => 1,
-        "multiply" => 2,
-        "screen" => 3,
-        "mix" => 4,
-        other => {
-            return Err(anyhow!(
-                "unknown blend mode `{other}`. Valid: over, add, multiply, screen, mix"
-            ))
-        }
-    })
-}
-
-impl BlendNode {
+impl LevelsNode {
     pub fn new(spec: &NodeSpec, gpu: &GpuContext) -> Result<Self> {
-        if spec.inputs.len() != 2 {
+        if spec.inputs.len() != 1 {
             return Err(anyhow!(
-                "`blend` requires exactly 2 inputs, got {}",
+                "`levels` requires exactly 1 input, got {}",
                 spec.inputs.len()
             ));
         }
 
-        let mode_str = spec
-            .params
-            .get("mode")
-            .and_then(|v| v.as_string())
-            .unwrap_or("over");
-        let mode = parse_mode(mode_str)?;
-
         let device = &gpu.device;
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("blend bgl"),
+            label: Some("levels bgl"),
             entries: &[
                 shader_pass::uniform_entry(0),
                 shader_pass::texture_entry(1),
-                shader_pass::texture_entry(2),
-                shader_pass::sampler_entry(3),
+                shader_pass::sampler_entry(2),
             ],
         });
-        let pipeline = shader_pass::build_fullscreen_pipeline(gpu, "blend", SHADER, &bgl);
+        let pipeline = shader_pass::build_fullscreen_pipeline(gpu, "levels", SHADER, &bgl);
 
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("blend uniforms"),
+            label: Some("levels uniforms"),
             size: std::mem::size_of::<Uniforms>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -90,9 +64,10 @@ impl BlendNode {
 
         Ok(Self {
             inputs: spec.inputs.clone(),
-            mode,
-            factor: spec.scalar_param("factor", 1.0)?,
-            opacity: spec.scalar_param("opacity", 1.0)?,
+            gain: spec.scalar_param("gain", 1.0)?,
+            brightness: spec.scalar_param("brightness", 0.0)?,
+            contrast: spec.scalar_param("contrast", 1.0)?,
+            saturation: spec.scalar_param("saturation", 1.0)?,
             bgl,
             pipeline,
             uniform_buffer,
@@ -101,7 +76,7 @@ impl BlendNode {
     }
 }
 
-impl Node for BlendNode {
+impl Node for LevelsNode {
     fn input_refs(&self) -> Vec<String> {
         self.inputs.clone()
     }
@@ -112,30 +87,25 @@ impl Node for BlendNode {
         inputs: &[(String, &wgpu::Texture)],
         output: &wgpu::Texture,
     ) -> Result<()> {
-        let view_a = inputs[0]
-            .1
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        let view_b = inputs[1]
+        let view_in = inputs[0]
             .1
             .create_view(&wgpu::TextureViewDescriptor::default());
 
         let uniforms = Uniforms {
-            mode: self.mode,
-            factor: self.factor.resolve_scalar(&ctx.audio),
-            opacity: self.opacity.resolve_scalar(&ctx.audio),
-            ..Default::default()
+            gain: self.gain.resolve_scalar(&ctx.audio),
+            brightness: self.brightness.resolve_scalar(&ctx.audio),
+            contrast: self.contrast.resolve_scalar(&ctx.audio),
+            saturation: self.saturation.resolve_scalar(&ctx.audio),
         };
         ctx.gpu
             .queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 
-        // Bind group is rebuilt per frame because the input texture views
-        // are not stable across renders. This is cheap.
         let bind_group = ctx
             .gpu
             .device
             .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("blend bg"),
+                label: Some("levels bg"),
                 layout: &self.bgl,
                 entries: &[
                     wgpu::BindGroupEntry {
@@ -144,20 +114,16 @@ impl Node for BlendNode {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&view_a),
+                        resource: wgpu::BindingResource::TextureView(&view_in),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&view_b),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
                         resource: wgpu::BindingResource::Sampler(&self.sampler),
                     },
                 ],
             });
 
-        shader_pass::run_fullscreen_pass(ctx.gpu, "blend", &self.pipeline, &bind_group, output);
+        shader_pass::run_fullscreen_pass(ctx.gpu, "levels", &self.pipeline, &bind_group, output);
         Ok(())
     }
 }
@@ -168,20 +134,40 @@ mod tests {
     use crate::audio::FrameAudioFeatures;
     use crate::test_utils::TestHarness;
 
+    /// Identity values pass the input through unchanged.
     #[test]
-    fn add_mode_sums_inputs() {
+    fn identity_is_passthrough() {
         let Some(harness) = TestHarness::try_init(32, 32) else {
             return;
         };
         let spec: NodeSpec = ron::from_str(
-            r#"(type: "blend", inputs: ["a", "b"], params: { "mode": "add", "factor": 1.0, "opacity": 1.0 })"#,
+            r#"(type: "levels", inputs: ["src"], params: {
+                "gain": 1.0, "brightness": 0.0, "contrast": 1.0, "saturation": 1.0,
+            })"#,
         )
         .unwrap();
-        let mut node = BlendNode::new(&spec, &harness.gpu).unwrap();
-        let tex_a = harness.constant_texture([0.3, 0.0, 0.0, 1.0]);
-        let tex_b = harness.constant_texture([0.0, 0.5, 0.0, 1.0]);
-        let inputs: &[(String, &wgpu::Texture)] =
-            &[("a".to_string(), &tex_a), ("b".to_string(), &tex_b)];
+        let mut node = LevelsNode::new(&spec, &harness.gpu).unwrap();
+        let src = harness.constant_texture([0.4, 0.4, 0.4, 1.0]);
+        let inputs: &[(String, &wgpu::Texture)] = &[("src".to_string(), &src)];
+        let stats = harness.cook(&mut node, inputs, FrameAudioFeatures::default(), 0.0);
+        insta::assert_snapshot!(stats);
+    }
+
+    /// Saturation = 0 collapses RGB to luma — should produce a uniform grey.
+    #[test]
+    fn zero_saturation_grays_out() {
+        let Some(harness) = TestHarness::try_init(32, 32) else {
+            return;
+        };
+        let spec: NodeSpec = ron::from_str(
+            r#"(type: "levels", inputs: ["src"], params: {
+                "gain": 1.0, "brightness": 0.0, "contrast": 1.0, "saturation": 0.0,
+            })"#,
+        )
+        .unwrap();
+        let mut node = LevelsNode::new(&spec, &harness.gpu).unwrap();
+        let src = harness.constant_texture([0.7, 0.2, 0.3, 1.0]);
+        let inputs: &[(String, &wgpu::Texture)] = &[("src".to_string(), &src)];
         let stats = harness.cook(&mut node, inputs, FrameAudioFeatures::default(), 0.0);
         insta::assert_snapshot!(stats);
     }

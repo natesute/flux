@@ -82,9 +82,10 @@ impl AudioTrack {
         self.samples.len() as f32 / self.sample_rate as f32
     }
 
-    /// Compute features for the frame at the given time (seconds), assuming
-    /// `fps` rendering rate. The analysis window is centered on the frame.
-    pub fn features_at(&self, time: f32, _fps: u32) -> FrameAudioFeatures {
+    /// Compute features for the frame at the given time (seconds). The
+    /// analysis window is centered on `time` and sized by `FFT_SIZE`, so
+    /// the rendering framerate doesn't enter the calculation.
+    pub fn features_at(&self, time: f32) -> FrameAudioFeatures {
         let center = (time * self.sample_rate as f32) as isize;
         let half = FFT_SIZE as isize / 2;
         let start = center - half;

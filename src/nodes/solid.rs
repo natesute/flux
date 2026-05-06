@@ -16,20 +16,10 @@ pub struct SolidNode {
 
 impl SolidNode {
     pub fn new(spec: &NodeSpec, _gpu: &GpuContext) -> Result<Self> {
-        let color = spec
-            .params
-            .get("color")
-            .cloned()
-            .unwrap_or(ParamValue::Color(vec![1.0, 1.0, 1.0, 1.0]));
-        let intensity = spec
-            .params
-            .get("intensity")
-            .cloned()
-            .unwrap_or(ParamValue::Number(1.0));
         Ok(Self {
             inputs: spec.inputs.clone(),
-            color,
-            intensity,
+            color: spec.color_param("color", [1.0, 1.0, 1.0, 1.0])?,
+            intensity: spec.scalar_param("intensity", 1.0)?,
         })
     }
 }
@@ -49,9 +39,12 @@ impl Node for SolidNode {
         let c = self.color.as_color();
         let view = output.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut encoder = ctx.gpu.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor { label: Some("solid") },
-        );
+        let mut encoder = ctx
+            .gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("solid"),
+            });
         {
             let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("solid pass"),
@@ -75,5 +68,24 @@ impl Node for SolidNode {
         }
         ctx.gpu.queue.submit(Some(encoder.finish()));
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio::FrameAudioFeatures;
+    use crate::test_utils::TestHarness;
+
+    #[test]
+    fn fills_with_color() {
+        let Some(harness) = TestHarness::try_init(32, 32) else {
+            return;
+        };
+        let spec: NodeSpec =
+            ron::from_str(r#"(type: "solid", params: { "color": [0.4, 0.7, 0.2, 1.0] })"#).unwrap();
+        let mut node = SolidNode::new(&spec, &harness.gpu).unwrap();
+        let stats = harness.cook(&mut node, &[], FrameAudioFeatures::default(), 0.0);
+        insta::assert_snapshot!(stats);
     }
 }

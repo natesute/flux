@@ -1,7 +1,8 @@
-//! `blend` — composite two input textures.
+//! `transform` — translate / rotate / scale an input texture about its center.
 //!
-//! Inputs (in order): `a` (background), `b` (foreground/overlay).
-//! Modes: `over`, `add`, `multiply`, `screen`, `mix`.
+//! Any of the five params (`offset_x`, `offset_y`, `rotation`, `scale_x`,
+//! `scale_y`) can be bound to an audio feature, so e.g. you can punch the
+//! image outward on every kick by binding `scale_x` and `scale_y` to bass.
 
 use anyhow::{anyhow, Result};
 use bytemuck::{Pod, Zeroable};
@@ -11,26 +12,28 @@ use crate::nodes::shader_pass;
 use crate::nodes::Node;
 use crate::project::{NodeSpec, ParamValue};
 
-const SHADER: &str = include_str!("../../shaders/blend.wgsl");
+const SHADER: &str = include_str!("../../shaders/transform.wgsl");
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable, Default)]
 struct Uniforms {
-    mode: u32,
-    _pad0: u32,
-    _pad1: u32,
-    _pad2: u32,
-    factor: f32,
-    opacity: f32,
-    _pad3: f32,
-    _pad4: f32,
+    offset_x: f32,
+    offset_y: f32,
+    rotation: f32,
+    scale_x: f32,
+    scale_y: f32,
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
 }
 
-pub struct BlendNode {
+pub struct TransformNode {
     inputs: Vec<String>,
-    mode: u32,
-    factor: ParamValue,
-    opacity: ParamValue,
+    offset_x: ParamValue,
+    offset_y: ParamValue,
+    rotation: ParamValue,
+    scale_x: ParamValue,
+    scale_y: ParamValue,
 
     bgl: wgpu::BindGroupLayout,
     pipeline: wgpu::RenderPipeline,
@@ -38,51 +41,28 @@ pub struct BlendNode {
     sampler: wgpu::Sampler,
 }
 
-fn parse_mode(s: &str) -> Result<u32> {
-    Ok(match s {
-        "over" => 0,
-        "add" => 1,
-        "multiply" => 2,
-        "screen" => 3,
-        "mix" => 4,
-        other => {
-            return Err(anyhow!(
-                "unknown blend mode `{other}`. Valid: over, add, multiply, screen, mix"
-            ))
-        }
-    })
-}
-
-impl BlendNode {
+impl TransformNode {
     pub fn new(spec: &NodeSpec, gpu: &GpuContext) -> Result<Self> {
-        if spec.inputs.len() != 2 {
+        if spec.inputs.len() != 1 {
             return Err(anyhow!(
-                "`blend` requires exactly 2 inputs, got {}",
+                "`transform` requires exactly 1 input, got {}",
                 spec.inputs.len()
             ));
         }
 
-        let mode_str = spec
-            .params
-            .get("mode")
-            .and_then(|v| v.as_string())
-            .unwrap_or("over");
-        let mode = parse_mode(mode_str)?;
-
         let device = &gpu.device;
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("blend bgl"),
+            label: Some("transform bgl"),
             entries: &[
                 shader_pass::uniform_entry(0),
                 shader_pass::texture_entry(1),
-                shader_pass::texture_entry(2),
-                shader_pass::sampler_entry(3),
+                shader_pass::sampler_entry(2),
             ],
         });
-        let pipeline = shader_pass::build_fullscreen_pipeline(gpu, "blend", SHADER, &bgl);
+        let pipeline = shader_pass::build_fullscreen_pipeline(gpu, "transform", SHADER, &bgl);
 
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("blend uniforms"),
+            label: Some("transform uniforms"),
             size: std::mem::size_of::<Uniforms>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -90,9 +70,11 @@ impl BlendNode {
 
         Ok(Self {
             inputs: spec.inputs.clone(),
-            mode,
-            factor: spec.scalar_param("factor", 1.0)?,
-            opacity: spec.scalar_param("opacity", 1.0)?,
+            offset_x: spec.scalar_param("offset_x", 0.0)?,
+            offset_y: spec.scalar_param("offset_y", 0.0)?,
+            rotation: spec.scalar_param("rotation", 0.0)?,
+            scale_x: spec.scalar_param("scale_x", 1.0)?,
+            scale_y: spec.scalar_param("scale_y", 1.0)?,
             bgl,
             pipeline,
             uniform_buffer,
@@ -101,7 +83,7 @@ impl BlendNode {
     }
 }
 
-impl Node for BlendNode {
+impl Node for TransformNode {
     fn input_refs(&self) -> Vec<String> {
         self.inputs.clone()
     }
@@ -112,30 +94,27 @@ impl Node for BlendNode {
         inputs: &[(String, &wgpu::Texture)],
         output: &wgpu::Texture,
     ) -> Result<()> {
-        let view_a = inputs[0]
-            .1
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        let view_b = inputs[1]
+        let view_in = inputs[0]
             .1
             .create_view(&wgpu::TextureViewDescriptor::default());
 
         let uniforms = Uniforms {
-            mode: self.mode,
-            factor: self.factor.resolve_scalar(&ctx.audio),
-            opacity: self.opacity.resolve_scalar(&ctx.audio),
+            offset_x: self.offset_x.resolve_scalar(&ctx.audio),
+            offset_y: self.offset_y.resolve_scalar(&ctx.audio),
+            rotation: self.rotation.resolve_scalar(&ctx.audio),
+            scale_x: self.scale_x.resolve_scalar(&ctx.audio),
+            scale_y: self.scale_y.resolve_scalar(&ctx.audio),
             ..Default::default()
         };
         ctx.gpu
             .queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 
-        // Bind group is rebuilt per frame because the input texture views
-        // are not stable across renders. This is cheap.
         let bind_group = ctx
             .gpu
             .device
             .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("blend bg"),
+                label: Some("transform bg"),
                 layout: &self.bgl,
                 entries: &[
                     wgpu::BindGroupEntry {
@@ -144,20 +123,16 @@ impl Node for BlendNode {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&view_a),
+                        resource: wgpu::BindingResource::TextureView(&view_in),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&view_b),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
                         resource: wgpu::BindingResource::Sampler(&self.sampler),
                     },
                 ],
             });
 
-        shader_pass::run_fullscreen_pass(ctx.gpu, "blend", &self.pipeline, &bind_group, output);
+        shader_pass::run_fullscreen_pass(ctx.gpu, "transform", &self.pipeline, &bind_group, output);
         Ok(())
     }
 }
@@ -168,20 +143,22 @@ mod tests {
     use crate::audio::FrameAudioFeatures;
     use crate::test_utils::TestHarness;
 
+    /// Identity transform on a constant input should pass it through unchanged.
     #[test]
-    fn add_mode_sums_inputs() {
+    fn identity_passes_through() {
         let Some(harness) = TestHarness::try_init(32, 32) else {
             return;
         };
         let spec: NodeSpec = ron::from_str(
-            r#"(type: "blend", inputs: ["a", "b"], params: { "mode": "add", "factor": 1.0, "opacity": 1.0 })"#,
+            r#"(type: "transform", inputs: ["src"], params: {
+                "offset_x": 0.0, "offset_y": 0.0, "rotation": 0.0,
+                "scale_x": 1.0, "scale_y": 1.0,
+            })"#,
         )
         .unwrap();
-        let mut node = BlendNode::new(&spec, &harness.gpu).unwrap();
-        let tex_a = harness.constant_texture([0.3, 0.0, 0.0, 1.0]);
-        let tex_b = harness.constant_texture([0.0, 0.5, 0.0, 1.0]);
-        let inputs: &[(String, &wgpu::Texture)] =
-            &[("a".to_string(), &tex_a), ("b".to_string(), &tex_b)];
+        let mut node = TransformNode::new(&spec, &harness.gpu).unwrap();
+        let src = harness.constant_texture([0.4, 0.4, 0.4, 1.0]);
+        let inputs: &[(String, &wgpu::Texture)] = &[("src".to_string(), &src)];
         let stats = harness.cook(&mut node, inputs, FrameAudioFeatures::default(), 0.0);
         insta::assert_snapshot!(stats);
     }

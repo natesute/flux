@@ -11,16 +11,21 @@ use crate::engine::GpuContext;
 /// - Has a single bind group at @group(0)
 /// - Renders into the engine's standard `Rgba16Float` format
 /// - Uses entry points `vs_main` and `fs_main`
+///
+/// The shader module is consumed during pipeline construction; nothing
+/// else needs it, so it isn't returned.
 pub fn build_fullscreen_pipeline(
     gpu: &GpuContext,
     label: &str,
     shader_source: &str,
     bind_group_layout: &wgpu::BindGroupLayout,
-) -> (wgpu::ShaderModule, wgpu::RenderPipeline) {
-    let module = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some(label),
-        source: wgpu::ShaderSource::Wgsl(shader_source.into()),
-    });
+) -> wgpu::RenderPipeline {
+    let module = gpu
+        .device
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(label),
+            source: wgpu::ShaderSource::Wgsl(shader_source.into()),
+        });
 
     let layout = gpu
         .device
@@ -30,8 +35,7 @@ pub fn build_fullscreen_pipeline(
             push_constant_ranges: &[],
         });
 
-    let pipeline = gpu
-        .device
+    gpu.device
         .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(&format!("{label} pipeline")),
             layout: Some(&layout),
@@ -59,9 +63,7 @@ pub fn build_fullscreen_pipeline(
             multisample: Default::default(),
             multiview: None,
             cache: None,
-        });
-
-    (module, pipeline)
+        })
 }
 
 /// Standard sampler used for input textures: linear filtering, clamp.

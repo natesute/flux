@@ -1,0 +1,8 @@
+---
+source: src/nodes/feedback.rs
+expression: stats
+---
+32x32
+mean  R=155.0 G=123.0 B=173.0 A=255.0
+range R=155-155 G=123-123 B=173-173 A=255-255
+nonblack 1024/1024

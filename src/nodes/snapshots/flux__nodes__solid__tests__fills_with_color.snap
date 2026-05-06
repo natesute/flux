@@ -1,0 +1,8 @@
+---
+source: src/nodes/solid.rs
+expression: stats
+---
+32x32
+mean  R=144.0 G=170.0 B=113.0 A=255.0
+range R=144-144 G=170-170 B=113-113 A=255-255
+nonblack 1024/1024

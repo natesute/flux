@@ -17,11 +17,10 @@ A truthful list of what is and isn't implemented. If you're an AI agent or a con
 
 ### Stubbed / not yet built
 - [ ] Most useful node types (see below)
-- [ ] Live audio input (cpal is in deps but not wired)
+- [ ] Live audio input (cpal not yet a dependency; deferred to v0.4)
 - [ ] Realtime preview window
 - [ ] Custom-shader node (load arbitrary `.wgsl` from project dir)
 - [ ] Snapshot tests for nodes
-- [ ] CI workflow
 
 ## v0.2 — A useful node library
 
@@ -32,16 +31,16 @@ Goal: enough nodes that you can produce something that resembles a Klsr-style au
 - [x] `feedback` — frame-N-1 history texture with zoom/rotation/offset/decay; the trails effect
 - [x] `blend` — composite two inputs with `over`, `add`, `multiply`, `screen`, `mix` modes
 - [x] `bloom` — single-pass thresholded glow (multi-pass upgrade tracked separately)
+- [x] `transform` — affine translate/rotate/scale about the frame center
+- [x] `levels` — gain, brightness, contrast, saturation (per-pixel)
 - [x] `shader_pass` helper module — shared boilerplate so adding a new shader node is ~80 lines instead of ~150
+- [x] Snapshot test scaffolding (`TestHarness` + `ImageStats`) and one test per node
 
 ### Still to do for v0.2 polish
 - [ ] `displace` — displace one input by another's luminance/derivative
-- [ ] `transform` — translate/rotate/scale an input
-- [ ] `levels` — gain, brightness, contrast, saturation
 - [ ] `chromatic_aberration` — RGB channel splitting
 - [ ] `grain` — animated film grain overlay
 - [ ] `color_grade` — LUT-based color grading
-- [ ] Snapshot tests for every node
 - [ ] Update `examples/` with a piece exercising the full v0.2 chain (`atmospheric.ron` is a start)
 
 ## v0.3 — 3D and shader-driven generation

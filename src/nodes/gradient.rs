@@ -47,8 +47,7 @@ impl GradientNode {
             label: Some("gradient bgl"),
             entries: &[shader_pass::uniform_entry(0)],
         });
-        let (_module, pipeline) =
-            shader_pass::build_fullscreen_pipeline(gpu, "gradient", SHADER, &bgl);
+        let pipeline = shader_pass::build_fullscreen_pipeline(gpu, "gradient", SHADER, &bgl);
 
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("gradient uniforms"),
@@ -67,26 +66,10 @@ impl GradientNode {
 
         Ok(Self {
             inputs: spec.inputs.clone(),
-            inner_color: spec
-                .params
-                .get("inner_color")
-                .cloned()
-                .unwrap_or(ParamValue::Color(vec![1.0, 1.0, 1.0, 1.0])),
-            outer_color: spec
-                .params
-                .get("outer_color")
-                .cloned()
-                .unwrap_or(ParamValue::Color(vec![0.0, 0.0, 0.0, 1.0])),
-            radius: spec
-                .params
-                .get("radius")
-                .cloned()
-                .unwrap_or(ParamValue::Number(0.5)),
-            intensity: spec
-                .params
-                .get("intensity")
-                .cloned()
-                .unwrap_or(ParamValue::Number(1.0)),
+            inner_color: spec.color_param("inner_color", [1.0, 1.0, 1.0, 1.0])?,
+            outer_color: spec.color_param("outer_color", [0.0, 0.0, 0.0, 1.0])?,
+            radius: spec.scalar_param("radius", 0.5)?,
+            intensity: spec.scalar_param("intensity", 1.0)?,
             pipeline,
             uniform_buffer,
             bind_group,
@@ -127,5 +110,35 @@ impl Node for GradientNode {
             output,
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio::FrameAudioFeatures;
+    use crate::test_utils::TestHarness;
+
+    /// Canonical node-test pattern. Copy this for new nodes:
+    ///   1. `try_init` the harness (skip if no GPU).
+    ///   2. Build a `NodeSpec` from a literal RON string.
+    ///   3. `cook` one frame and snapshot the resulting stats.
+    #[test]
+    fn renders_default_radius() {
+        let Some(harness) = TestHarness::try_init(64, 64) else {
+            return;
+        };
+        let spec: NodeSpec = ron::from_str(
+            r#"(type: "gradient", params: {
+                "inner_color": [1.0, 1.0, 1.0, 1.0],
+                "outer_color": [0.0, 0.0, 0.0, 1.0],
+                "radius": 0.5,
+                "intensity": 1.0,
+            })"#,
+        )
+        .unwrap();
+        let mut node = GradientNode::new(&spec, &harness.gpu).unwrap();
+        let stats = harness.cook(&mut node, &[], FrameAudioFeatures::default(), 0.0);
+        insta::assert_snapshot!(stats);
     }
 }

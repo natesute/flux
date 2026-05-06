@@ -48,8 +48,7 @@ impl NoiseNode {
             label: Some("noise bgl"),
             entries: &[shader_pass::uniform_entry(0)],
         });
-        let (_module, pipeline) =
-            shader_pass::build_fullscreen_pipeline(gpu, "noise", SHADER, &bgl);
+        let pipeline = shader_pass::build_fullscreen_pipeline(gpu, "noise", SHADER, &bgl);
 
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("noise uniforms"),
@@ -68,41 +67,13 @@ impl NoiseNode {
 
         Ok(Self {
             inputs: spec.inputs.clone(),
-            color_a: spec
-                .params
-                .get("color_a")
-                .cloned()
-                .unwrap_or(ParamValue::Color(vec![0.0, 0.0, 0.0, 1.0])),
-            color_b: spec
-                .params
-                .get("color_b")
-                .cloned()
-                .unwrap_or(ParamValue::Color(vec![1.0, 1.0, 1.0, 1.0])),
-            scale: spec
-                .params
-                .get("scale")
-                .cloned()
-                .unwrap_or(ParamValue::Number(3.0)),
-            speed: spec
-                .params
-                .get("speed")
-                .cloned()
-                .unwrap_or(ParamValue::Number(0.3)),
-            octaves: spec
-                .params
-                .get("octaves")
-                .cloned()
-                .unwrap_or(ParamValue::Number(4.0)),
-            contrast: spec
-                .params
-                .get("contrast")
-                .cloned()
-                .unwrap_or(ParamValue::Number(1.0)),
-            intensity: spec
-                .params
-                .get("intensity")
-                .cloned()
-                .unwrap_or(ParamValue::Number(1.0)),
+            color_a: spec.color_param("color_a", [0.0, 0.0, 0.0, 1.0])?,
+            color_b: spec.color_param("color_b", [1.0, 1.0, 1.0, 1.0])?,
+            scale: spec.scalar_param("scale", 3.0)?,
+            speed: spec.scalar_param("speed", 0.3)?,
+            octaves: spec.scalar_param("octaves", 4.0)?,
+            contrast: spec.scalar_param("contrast", 1.0)?,
+            intensity: spec.scalar_param("intensity", 1.0)?,
             pipeline,
             uniform_buffer,
             bind_group,
@@ -144,5 +115,34 @@ impl Node for NoiseNode {
             output,
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio::FrameAudioFeatures;
+    use crate::test_utils::TestHarness;
+
+    #[test]
+    fn renders_default_fbm() {
+        let Some(harness) = TestHarness::try_init(64, 64) else {
+            return;
+        };
+        let spec: NodeSpec = ron::from_str(
+            r#"(type: "noise", params: {
+                "color_a": [0.0, 0.0, 0.0, 1.0],
+                "color_b": [1.0, 1.0, 1.0, 1.0],
+                "scale": 3.0,
+                "speed": 0.0,
+                "octaves": 3.0,
+                "contrast": 1.0,
+                "intensity": 1.0,
+            })"#,
+        )
+        .unwrap();
+        let mut node = NoiseNode::new(&spec, &harness.gpu).unwrap();
+        let stats = harness.cook(&mut node, &[], FrameAudioFeatures::default(), 0.0);
+        insta::assert_snapshot!(stats);
     }
 }

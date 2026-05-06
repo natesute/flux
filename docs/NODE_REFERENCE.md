@@ -145,4 +145,52 @@ Soft glow around bright areas. Single-pass implementation; a multi-pass upgrade 
 
 ---
 
+## `transform`
+
+Affine 2D transform of an input texture: translate, rotate, and non-uniform scale, all about the center of the frame. Out-of-bounds reads clamp to the edge pixel.
+
+**Inputs**: 1
+
+**Parameters**:
+
+| Name       | Type   | Default | Description                                              |
+|------------|--------|---------|----------------------------------------------------------|
+| `offset_x` | Number | `0.0`   | Translation in normalized UV (positive = right).         |
+| `offset_y` | Number | `0.0`   | Translation in normalized UV (positive = down).          |
+| `rotation` | Number | `0.0`   | Rotation in radians (counter-clockwise).                 |
+| `scale_x`  | Number | `1.0`   | Horizontal scale. >1 enlarges content, <1 shrinks.       |
+| `scale_y`  | Number | `1.0`   | Vertical scale.                                          |
+
+**Example** — punch the image outward on every kick:
+
+```ron
+"punch": (
+    type: "transform",
+    inputs: ["src"],
+    params: {
+        "scale_x": (feature: "bass", scale: 0.4, bias: 1.0),
+        "scale_y": (feature: "bass", scale: 0.4, bias: 1.0),
+    },
+),
+```
+
+---
+
+## `levels`
+
+Per-pixel color adjustments: gain, brightness, contrast (about a 0.5 pivot), and saturation (Rec. 709 luma weights). Identity values are `gain=1, brightness=0, contrast=1, saturation=1`.
+
+**Inputs**: 1
+
+**Parameters**:
+
+| Name         | Type   | Default | Description                                              |
+|--------------|--------|---------|----------------------------------------------------------|
+| `gain`       | Number | `1.0`   | Multiplicative scale on RGB. Applied first.              |
+| `brightness` | Number | `0.0`   | Additive offset on RGB.                                  |
+| `contrast`   | Number | `1.0`   | Push values away from 0.5. >1 punchier, <1 flatter.      |
+| `saturation` | Number | `1.0`   | 0 = grayscale, 1 = unchanged, >1 = more saturated.       |
+
+---
+
 *More nodes coming — see [`ROADMAP.md`](ROADMAP.md).*

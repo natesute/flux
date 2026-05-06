@@ -8,16 +8,20 @@ mod blend;
 mod bloom;
 mod feedback;
 mod gradient;
+mod levels;
 mod noise;
 mod shader_pass;
 mod solid;
+mod transform;
 
 pub use blend::BlendNode;
 pub use bloom::BloomNode;
 pub use feedback::FeedbackNode;
 pub use gradient::GradientNode;
+pub use levels::LevelsNode;
 pub use noise::NoiseNode;
 pub use solid::SolidNode;
+pub use transform::TransformNode;
 
 use anyhow::{anyhow, Result};
 
@@ -55,6 +59,8 @@ pub fn node_from_spec(_name: &str, spec: &NodeSpec, gpu: &GpuContext) -> Result<
         "feedback" => Box::new(FeedbackNode::new(spec, gpu)?),
         "blend" => Box::new(BlendNode::new(spec, gpu)?),
         "bloom" => Box::new(BloomNode::new(spec, gpu)?),
+        "transform" => Box::new(TransformNode::new(spec, gpu)?),
+        "levels" => Box::new(LevelsNode::new(spec, gpu)?),
         other => {
             return Err(anyhow!(
                 "unknown node type `{other}`. Run `flux nodes` to list available types."
@@ -66,5 +72,14 @@ pub fn node_from_spec(_name: &str, spec: &NodeSpec, gpu: &GpuContext) -> Result<
 
 /// Names of all registered node types. Used by `flux nodes`.
 pub fn registered_names() -> Vec<&'static str> {
-    vec!["solid", "gradient", "noise", "feedback", "blend", "bloom"]
+    vec![
+        "solid",
+        "gradient",
+        "noise",
+        "feedback",
+        "blend",
+        "bloom",
+        "transform",
+        "levels",
+    ]
 }

@@ -2,7 +2,7 @@
 
 mod context;
 mod frame;
-mod graph;
+pub(crate) mod graph;
 
 pub use context::GpuContext;
 pub use frame::FrameContext;
@@ -29,8 +29,7 @@ impl Engine {
     /// Build an engine from a project. Initializes the GPU device and
     /// instantiates every node in the graph.
     pub fn new(project: &Project) -> Result<Self> {
-        let gpu = pollster::block_on(GpuContext::new())
-            .context("creating GPU context")?;
+        let gpu = pollster::block_on(GpuContext::new()).context("creating GPU context")?;
         let graph = Graph::from_project(project, &gpu)?;
         Ok(Self {
             gpu,
@@ -58,12 +57,13 @@ impl Engine {
 
         tracing::info!(
             "Rendering {total_frames} frames at {}x{} {fps}fps",
-            self.width, self.height
+            self.width,
+            self.height
         );
 
         for frame_index in 0..total_frames {
             let time = frame_index as f32 / fps as f32;
-            let audio_features = track.features_at(time, fps);
+            let audio_features = track.features_at(time);
             let mut frame_ctx = FrameContext {
                 gpu: &self.gpu,
                 width: self.width,
