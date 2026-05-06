@@ -1,5 +1,7 @@
 //! Serde schema for project files. Stable; changes need a migration.
 
+use std::path::PathBuf;
+
 use anyhow::{anyhow, Result};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -17,10 +19,40 @@ pub struct Project {
     pub height: u32,
     /// Default framerate for rendering.
     pub fps: u32,
+    /// HDR-to-SDR tone map applied at readback. Defaults to ACES, which
+    /// preserves saturation in highlights better than Reinhard.
+    #[serde(default)]
+    pub tone_map: ToneMap,
     /// All node instances, keyed by name.
     pub nodes: IndexMap<String, NodeSpec>,
     /// Name of the node whose output texture is the final video frame.
     pub output: String,
+
+    /// Directory the project was loaded from. Used to resolve relative paths
+    /// (e.g. `custom_shader`'s `path` param). Populated by `Project::load`;
+    /// projects deserialized in-memory have an empty value, which is fine
+    /// for builds that don't reference any file-loading nodes.
+    #[serde(skip, default)]
+    pub source_dir: PathBuf,
+}
+
+/// Tone-mapping curve applied to engine-internal Rgba16Float values when
+/// converting them to 8-bit RGBA for video output. The internal pipeline
+/// runs in HDR (values can exceed 1.0); this is what compresses them back
+/// into displayable range.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ToneMap {
+    /// ACES filmic approximation (Narkowicz). Industry-standard, preserves
+    /// highlight saturation, gentle roll-off. Good default for most pieces.
+    #[default]
+    Aces,
+    /// Reinhard (`x / (1 + x)`). Simple, but desaturates bright RGB values.
+    /// Use when you want a softer, more washed look.
+    Reinhard,
+    /// No tone mapping; values are simply clamped into [0, 1]. Useful when
+    /// the project is already SDR-bounded and you want bit-exact output.
+    None,
 }
 
 /// One node in the graph.

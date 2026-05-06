@@ -3,7 +3,8 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
+use flux::project::ToneMap;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
@@ -43,6 +44,10 @@ enum Command {
         /// Render only the first N seconds (useful for previews).
         #[arg(long)]
         duration: Option<f32>,
+
+        /// Override the project's tone-map setting.
+        #[arg(long, value_enum)]
+        tone_map: Option<ToneMapArg>,
     },
 
     /// Validate a project file without rendering.
@@ -50,6 +55,25 @@ enum Command {
 
     /// List built-in node types.
     Nodes,
+}
+
+/// CLI mirror of `project::ToneMap`. Kept separate so clap doesn't need
+/// derive support on the schema type.
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum ToneMapArg {
+    Aces,
+    Reinhard,
+    None,
+}
+
+impl From<ToneMapArg> for ToneMap {
+    fn from(value: ToneMapArg) -> Self {
+        match value {
+            ToneMapArg::Aces => ToneMap::Aces,
+            ToneMapArg::Reinhard => ToneMap::Reinhard,
+            ToneMapArg::None => ToneMap::None,
+        }
+    }
 }
 
 fn main() -> Result<()> {
@@ -63,10 +87,14 @@ fn main() -> Result<()> {
             out,
             fps,
             duration,
+            tone_map,
         } => {
             let proj = flux::Project::load(&project)
                 .with_context(|| format!("loading project {}", project.display()))?;
             let mut engine = flux::Engine::new(&proj)?;
+            if let Some(tm) = tone_map {
+                engine.tone_map = tm.into();
+            }
             engine.render_to_file(&audio, &out, fps, duration)?;
             tracing::info!("Wrote {}", out.display());
         }

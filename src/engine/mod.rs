@@ -14,7 +14,7 @@ use anyhow::{Context, Result};
 
 use crate::audio::AudioTrack;
 use crate::output::VideoEncoder;
-use crate::project::Project;
+use crate::project::{Project, ToneMap};
 
 /// Top-level engine. Owns the GPU context and the cooked graph.
 pub struct Engine {
@@ -23,6 +23,7 @@ pub struct Engine {
     pub width: u32,
     pub height: u32,
     pub fps: u32,
+    pub tone_map: ToneMap,
 }
 
 impl Engine {
@@ -37,6 +38,7 @@ impl Engine {
             width: project.width,
             height: project.height,
             fps: project.fps,
+            tone_map: project.tone_map,
         })
     }
 
@@ -73,7 +75,7 @@ impl Engine {
                 audio: audio_features,
             };
             self.graph.cook_frame(&mut frame_ctx)?;
-            let pixels = self.graph.read_output_pixels(&frame_ctx)?;
+            let pixels = self.graph.read_output_pixels(&frame_ctx, self.tone_map)?;
             encoder.write_frame(&pixels)?;
 
             if frame_index % fps == 0 {

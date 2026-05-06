@@ -26,6 +26,7 @@ use anyhow::Result;
 use crate::audio::FrameAudioFeatures;
 use crate::engine::{FrameContext, GpuContext};
 use crate::nodes::Node;
+use crate::project::ToneMap;
 
 /// All the GPU plumbing a node test needs. Construct once per test with
 /// [`TestHarness::try_init`]; each call to [`TestHarness::cook`] produces
@@ -128,6 +129,7 @@ impl TestHarness {
             &output,
             self.width,
             self.height,
+            ToneMap::Aces,
         )
     }
 

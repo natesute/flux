@@ -47,3 +47,30 @@ When in doubt, add explicit `_pad` fields. Misaligned uniforms produce silent ga
 ## Output color space
 
 Every shader writes linear-light values into an `Rgba16Float` target. Tone mapping and gamma happen in the readback path, *not* in the shader. Don't apply `pow(c, 2.2)` or similar in your shaders — you'll double-correct.
+
+## Custom shaders (`custom_shader` node)
+
+User-authored shaders loaded via `custom_shader` use a fixed binding contract. The number of `inputN` texture bindings must equal the node's `inputs.len()`.
+
+```wgsl
+struct Uniforms {
+    time: f32,            // seconds since start of render
+    frame: f32,            // frame index, as f32
+    resolution: vec2<f32>, // output texture size in pixels
+    rms: f32,              // audio amplitude, ~0..1
+    bass: f32,             // ~20-250 Hz band, ~0..1
+    low_mid: f32,          // ~250-1000 Hz band
+    high_mid: f32,         // ~1000-4000 Hz band
+    treble: f32,           // ~4000-16000 Hz band
+};
+
+@group(0) @binding(0) var<uniform> u: Uniforms;
+@group(0) @binding(1) var samp: sampler;
+@group(0) @binding(2) var input0: texture_2d<f32>;
+// up to input3 at @binding(5)
+
+@vertex   fn vs_main(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> { /* fullscreen triangle */ }
+@fragment fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> { /* your code */ }
+```
+
+Custom shaders receive the same color-space rules: write linear-light values; tone mapping and gamma happen on readback. Shader compile errors surface as a real error from `flux check` and `flux render` — they aren't silent.

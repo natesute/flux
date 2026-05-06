@@ -6,6 +6,8 @@
 
 mod blend;
 mod bloom;
+mod custom_shader;
+mod displace;
 mod feedback;
 mod gradient;
 mod levels;
@@ -16,12 +18,16 @@ mod transform;
 
 pub use blend::BlendNode;
 pub use bloom::BloomNode;
+pub use custom_shader::CustomShaderNode;
+pub use displace::DisplaceNode;
 pub use feedback::FeedbackNode;
 pub use gradient::GradientNode;
 pub use levels::LevelsNode;
 pub use noise::NoiseNode;
 pub use solid::SolidNode;
 pub use transform::TransformNode;
+
+use std::path::Path;
 
 use anyhow::{anyhow, Result};
 
@@ -50,8 +56,15 @@ pub trait Node: Send {
 
 pub type BoxedNode = Box<dyn Node>;
 
-/// Look up and instantiate a node by its type name.
-pub fn node_from_spec(_name: &str, spec: &NodeSpec, gpu: &GpuContext) -> Result<BoxedNode> {
+/// Look up and instantiate a node by its type name. `project_dir` is the
+/// directory the project file lives in; nodes that load sibling files
+/// (currently `custom_shader`) resolve their paths relative to it.
+pub fn node_from_spec(
+    _name: &str,
+    spec: &NodeSpec,
+    project_dir: &Path,
+    gpu: &GpuContext,
+) -> Result<BoxedNode> {
     let node: BoxedNode = match spec.kind.as_str() {
         "solid" => Box::new(SolidNode::new(spec, gpu)?),
         "gradient" => Box::new(GradientNode::new(spec, gpu)?),
@@ -61,6 +74,8 @@ pub fn node_from_spec(_name: &str, spec: &NodeSpec, gpu: &GpuContext) -> Result<
         "bloom" => Box::new(BloomNode::new(spec, gpu)?),
         "transform" => Box::new(TransformNode::new(spec, gpu)?),
         "levels" => Box::new(LevelsNode::new(spec, gpu)?),
+        "displace" => Box::new(DisplaceNode::new(spec, gpu)?),
+        "custom_shader" => Box::new(CustomShaderNode::new(spec, project_dir, gpu)?),
         other => {
             return Err(anyhow!(
                 "unknown node type `{other}`. Run `flux nodes` to list available types."
@@ -81,5 +96,7 @@ pub fn registered_names() -> Vec<&'static str> {
         "bloom",
         "transform",
         "levels",
+        "displace",
+        "custom_shader",
     ]
 }

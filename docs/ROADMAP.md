@@ -11,8 +11,8 @@ A truthful list of what is and isn't implemented. If you're an AI agent or a con
 - [x] Pull-based dataflow graph with topological cooking
 - [x] Audio-to-parameter binding (`feature: "bass", scale, bias`)
 - [x] FFmpeg-based video output (H.264 + AAC, mp4)
-- [x] Tone mapping + gamma correction on readback
-- [x] CLI: `render`, `check`, `nodes` subcommands
+- [x] Configurable tone mapping (`aces` default, `reinhard`, `none`) + 2.2 gamma on readback
+- [x] CLI: `render`, `check`, `nodes` subcommands; `--tone-map` override on render
 - [x] Node types: `solid`, `gradient`
 
 ### Stubbed / not yet built
@@ -37,7 +37,7 @@ Goal: enough nodes that you can produce something that resembles a Klsr-style au
 - [x] Snapshot test scaffolding (`TestHarness` + `ImageStats`) and one test per node
 
 ### Still to do for v0.2 polish
-- [ ] `displace` — displace one input by another's luminance/derivative
+- [x] `displace` — luminance-derivative or RG-vector warp of one input by another
 - [ ] `chromatic_aberration` — RGB channel splitting
 - [ ] `grain` — animated film grain overlay
 - [ ] `color_grade` — LUT-based color grading
@@ -47,7 +47,7 @@ Goal: enough nodes that you can produce something that resembles a Klsr-style au
 
 - `raymarch` — SDF-based raymarched scenes (volumetric fog, primitive shapes)
 - `instance` — instanced 3D geometry driven by audio
-- `custom_shader` — load user `.wgsl` shaders from project directory
+- [x] `custom_shader` — load user `.wgsl` shaders from project directory (landed early; the binding contract lives in `docs/SHADER_CONVENTIONS.md`)
 - HDR environment maps for reflective surfaces
 
 ## v0.4 — Workflow polish

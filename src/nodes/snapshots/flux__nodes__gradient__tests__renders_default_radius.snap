@@ -3,6 +3,6 @@ source: src/nodes/gradient.rs
 expression: stats
 ---
 64x64
-mean  R= 96.5 G= 96.5 B= 96.5 A=255.0
-range R=  0-185 G=  0-185 B=  0-185 A=255-255
+mean  R=123.0 G=123.0 B=123.0 A=255.0
+range R=  0-230 G=  0-230 B=  0-230 A=255-255
 nonblack 3228/4096

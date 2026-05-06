@@ -176,6 +176,34 @@ Affine 2D transform of an input texture: translate, rotate, and non-uniform scal
 
 ---
 
+## `displace`
+
+Warps `src` by sampling at offset UVs derived from `map`. The bridge between generators and final imagery: pipe a `noise` into `displace` and the noise becomes a flow field that pushes the source around.
+
+**Inputs**: 2 (in order: `src` to warp, `map` to drive displacement)
+
+**Parameters**:
+
+| Name     | Type   | Default        | Description                                                            |
+|----------|--------|----------------|------------------------------------------------------------------------|
+| `amount` | Number | `0.05`         | Displacement strength in normalized UV units. Bind to audio for hits. |
+| `mode`   | String | `"derivative"` | `"derivative"`: gradient of map's luminance. `"vector"`: read map's RG channels recentered around 0.5 as the displacement vector. |
+
+**Example** — turn drifting noise into a flow field over a gradient:
+
+```ron
+"flow": (
+    type: "displace",
+    inputs: ["bg", "noise"],
+    params: {
+        "amount": (feature: "rms", scale: 0.08, bias: 0.02),
+        "mode": "derivative",
+    },
+),
+```
+
+---
+
 ## `levels`
 
 Per-pixel color adjustments: gain, brightness, contrast (about a 0.5 pivot), and saturation (Rec. 709 luma weights). Identity values are `gain=1, brightness=0, contrast=1, saturation=1`.
@@ -190,6 +218,34 @@ Per-pixel color adjustments: gain, brightness, contrast (about a 0.5 pivot), and
 | `brightness` | Number | `0.0`   | Additive offset on RGB.                                  |
 | `contrast`   | Number | `1.0`   | Push values away from 0.5. >1 punchier, <1 flatter.      |
 | `saturation` | Number | `1.0`   | 0 = grayscale, 1 = unchanged, >1 = more saturated.       |
+
+---
+
+## `custom_shader`
+
+Loads a user-authored WGSL fragment shader from a path relative to the project file. The escape hatch from "whatever nodes flux ships with" — once this exists, anything you can write in WGSL is reachable without touching Rust.
+
+**Inputs**: 0..4
+
+**Parameters**:
+
+| Name   | Type   | Default | Description                                                       |
+|--------|--------|---------|-------------------------------------------------------------------|
+| `path` | String | —       | Path to a `.wgsl` file, relative to the project file's directory. |
+
+The shader must follow the binding contract documented in [`SHADER_CONVENTIONS.md`](SHADER_CONVENTIONS.md). The number of `inputN` bindings must equal `inputs.len()`. Shader compile errors surface from `flux check` and `flux render`.
+
+**Example**:
+
+```ron
+"custom": (
+    type: "custom_shader",
+    inputs: ["src"],
+    params: {
+        "path": "shaders/my_effect.wgsl",
+    },
+),
+```
 
 ---
 

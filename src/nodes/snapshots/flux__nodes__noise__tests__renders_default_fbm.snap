@@ -3,6 +3,6 @@ source: src/nodes/noise.rs
 expression: stats
 ---
 64x64
-mean  R=155.3 G=155.3 B=155.3 A=255.0
-range R=114-177 G=114-177 B=114-177 A=255-255
+mean  R=204.5 G=204.5 B=204.5 A=255.0
+range R=149-225 G=149-225 B=149-225 A=255-255
 nonblack 4096/4096

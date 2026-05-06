@@ -1,0 +1,36 @@
+// Smallest possible end-to-end demo of the `custom_shader` node. The
+// fragment shader lives in `shaders/sweep.wgsl` next to this file.
+//
+//   custom_shader (sweep.wgsl) ─► glow (bloom)
+//
+// Render with:
+//   flux render examples/sweep.ron --audio examples/test.wav --out sweep.mp4
+
+(
+    version: 1,
+    width: 720,
+    height: 720,
+    fps: 30,
+    tone_map: aces,
+
+    nodes: {
+        "sweep": (
+            type: "custom_shader",
+            params: {
+                "path": "shaders/sweep.wgsl",
+            },
+        ),
+
+        "glow": (
+            type: "bloom",
+            inputs: ["sweep"],
+            params: {
+                "threshold": 0.6,
+                "intensity": 0.4,
+                "radius": 4.0,
+            },
+        ),
+    },
+
+    output: "glow",
+)

@@ -10,7 +10,7 @@ use indexmap::IndexMap;
 
 use crate::engine::{FrameContext, GpuContext};
 use crate::nodes::{node_from_spec, BoxedNode};
-use crate::project::Project;
+use crate::project::{Project, ToneMap};
 
 /// Identifier for a node in the graph. Currently just the node's name from
 /// the project file.
@@ -30,7 +30,7 @@ impl Graph {
         // Instantiate every node.
         let mut nodes: IndexMap<NodeId, BoxedNode> = IndexMap::new();
         for (name, spec) in &project.nodes {
-            let node = node_from_spec(name, spec, gpu)
+            let node = node_from_spec(name, spec, &project.source_dir, gpu)
                 .with_context(|| format!("instantiating node `{name}`"))?;
             nodes.insert(name.clone(), node);
         }
@@ -122,13 +122,16 @@ impl Graph {
         Ok(())
     }
 
-    /// Read the output node's texture back to CPU as RGBA8 pixels for encoding.
-    pub fn read_output_pixels(&self, ctx: &FrameContext) -> Result<Vec<u8>> {
+    /// Read the output node's texture back to CPU as RGBA8 pixels for encoding,
+    /// applying the requested tone map to the engine's HDR-range floats.
+    pub fn read_output_pixels(&self, ctx: &FrameContext, tone_map: ToneMap) -> Result<Vec<u8>> {
         let texture = self
             .textures
             .get(&self.output_id)
             .expect("output texture exists");
-        crate::engine::graph::readback::texture_to_rgba8(ctx.gpu, texture, ctx.width, ctx.height)
+        crate::engine::graph::readback::texture_to_rgba8(
+            ctx.gpu, texture, ctx.width, ctx.height, tone_map,
+        )
     }
 }
 
@@ -200,15 +203,17 @@ pub(crate) mod readback {
     use anyhow::Result;
 
     use crate::engine::GpuContext;
+    use crate::project::ToneMap;
 
-    /// Copy a GPU texture into a Vec<u8> of RGBA8 pixels, applying Reinhard
-    /// tone mapping and a 2.2 gamma curve so HDR-range values land in the
-    /// 0..255 range FFmpeg expects.
+    /// Copy a GPU texture into a Vec<u8> of RGBA8 pixels, applying the
+    /// requested tone map and an sRGB-ish 2.2 gamma so HDR-range values land
+    /// in the 0..255 range FFmpeg expects.
     pub(crate) fn texture_to_rgba8(
         gpu: &GpuContext,
         texture: &wgpu::Texture,
         width: u32,
         height: u32,
+        tone_map: ToneMap,
     ) -> Result<Vec<u8>> {
         // wgpu requires buffer rows aligned to COPY_BYTES_PER_ROW_ALIGNMENT (256).
         // Derive bytes-per-pixel from the format so this stays correct if the
@@ -272,8 +277,6 @@ pub(crate) mod readback {
             let row_start = (y * padded_bytes_per_row) as usize;
             for x in 0..width {
                 let px_start = row_start + (x * bytes_per_pixel) as usize;
-                // Each f16 channel is 2 bytes. Convert to u8 with simple
-                // tone mapping (Reinhard) and gamma.
                 let f16_to_f32 =
                     |b: &[u8]| -> f32 { half::f16::from_le_bytes([b[0], b[1]]).to_f32() };
                 let r = f16_to_f32(&raw[px_start..px_start + 2]);
@@ -281,15 +284,14 @@ pub(crate) mod readback {
                 let b = f16_to_f32(&raw[px_start + 4..px_start + 6]);
                 let a = f16_to_f32(&raw[px_start + 6..px_start + 8]);
 
-                // Reinhard tone map then sRGB gamma.
-                let tone = |c: f32| -> u8 {
-                    let m = c / (1.0 + c);
-                    let g = m.clamp(0.0, 1.0).powf(1.0 / 2.2);
-                    (g * 255.0).round() as u8
+                let mapped = match tone_map {
+                    ToneMap::Aces => [aces(r), aces(g), aces(b)],
+                    ToneMap::Reinhard => [reinhard(r), reinhard(g), reinhard(b)],
+                    ToneMap::None => [r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0)],
                 };
-                out.push(tone(r));
-                out.push(tone(g));
-                out.push(tone(b));
+                out.push(to_u8_gamma(mapped[0]));
+                out.push(to_u8_gamma(mapped[1]));
+                out.push(to_u8_gamma(mapped[2]));
                 out.push((a.clamp(0.0, 1.0) * 255.0).round() as u8);
             }
         }
@@ -297,5 +299,29 @@ pub(crate) mod readback {
         drop(raw);
         buffer.unmap();
         Ok(out)
+    }
+
+    /// ACES filmic tone-map approximation (Krzysztof Narkowicz). Operates
+    /// per-channel; preserves highlight saturation better than Reinhard at
+    /// the cost of a slightly punchier rendering of mid-greys.
+    fn aces(x: f32) -> f32 {
+        let a = 2.51_f32;
+        let b = 0.03_f32;
+        let c = 2.43_f32;
+        let d = 0.59_f32;
+        let e = 0.14_f32;
+        ((x * (a * x + b)) / (x * (c * x + d) + e)).clamp(0.0, 1.0)
+    }
+
+    /// Simple Reinhard `x / (1 + x)`. Cheap, smooth, but desaturates bright
+    /// RGB.
+    fn reinhard(x: f32) -> f32 {
+        let m = x / (1.0 + x);
+        m.clamp(0.0, 1.0)
+    }
+
+    /// Apply the standard 2.2 display gamma and pack to 8-bit.
+    fn to_u8_gamma(x: f32) -> u8 {
+        (x.powf(1.0 / 2.2) * 255.0).round() as u8
     }
 }
