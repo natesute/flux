@@ -125,13 +125,19 @@ impl Graph {
     /// Read the output node's texture back to CPU as RGBA8 pixels for encoding,
     /// applying the requested tone map to the engine's HDR-range floats.
     pub fn read_output_pixels(&self, ctx: &FrameContext, tone_map: ToneMap) -> Result<Vec<u8>> {
-        let texture = self
-            .textures
-            .get(&self.output_id)
-            .expect("output texture exists");
+        let texture = self.output_texture();
         crate::engine::graph::readback::texture_to_rgba8(
             ctx.gpu, texture, ctx.width, ctx.height, tone_map,
         )
+    }
+
+    /// Borrow the texture this graph writes into for the configured output
+    /// node. Valid after `cook_frame`; sample it for live preview, copy it
+    /// for offline render readback, etc.
+    pub fn output_texture(&self) -> &wgpu::Texture {
+        self.textures
+            .get(&self.output_id)
+            .expect("output texture exists")
     }
 }
 

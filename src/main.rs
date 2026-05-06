@@ -55,6 +55,16 @@ enum Command {
 
     /// List built-in node types.
     Nodes,
+
+    /// Open a live preview window.
+    Preview {
+        /// Path to the project `.ron` file.
+        project: PathBuf,
+        /// Audio file (WAV) to drive reactive parameters. Audio is not
+        /// played back yet — only its features feed the graph.
+        #[arg(long)]
+        audio: PathBuf,
+    },
 }
 
 /// CLI mirror of `project::ToneMap`. Kept separate so clap doesn't need
@@ -109,6 +119,11 @@ fn main() -> Result<()> {
             for name in flux::nodes::registered_names() {
                 println!("{name}");
             }
+        }
+        Command::Preview { project, audio } => {
+            let proj = flux::Project::load(&project)
+                .with_context(|| format!("loading project {}", project.display()))?;
+            flux::preview::run(&proj, &proj.source_dir, &audio)?;
         }
     }
 

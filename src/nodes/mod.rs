@@ -6,24 +6,34 @@
 
 mod blend;
 mod bloom;
+mod chromatic_aberration;
+mod color_grade;
 mod custom_shader;
 mod displace;
 mod feedback;
 mod gradient;
+mod grain;
+mod instance;
 mod levels;
 mod noise;
+mod raymarch;
 mod shader_pass;
 mod solid;
 mod transform;
 
 pub use blend::BlendNode;
 pub use bloom::BloomNode;
+pub use chromatic_aberration::ChromaticAberrationNode;
+pub use color_grade::ColorGradeNode;
 pub use custom_shader::CustomShaderNode;
 pub use displace::DisplaceNode;
 pub use feedback::FeedbackNode;
 pub use gradient::GradientNode;
+pub use grain::GrainNode;
+pub use instance::InstanceNode;
 pub use levels::LevelsNode;
 pub use noise::NoiseNode;
+pub use raymarch::RaymarchNode;
 pub use solid::SolidNode;
 pub use transform::TransformNode;
 
@@ -75,6 +85,11 @@ pub fn node_from_spec(
         "transform" => Box::new(TransformNode::new(spec, gpu)?),
         "levels" => Box::new(LevelsNode::new(spec, gpu)?),
         "displace" => Box::new(DisplaceNode::new(spec, gpu)?),
+        "chromatic_aberration" => Box::new(ChromaticAberrationNode::new(spec, gpu)?),
+        "grain" => Box::new(GrainNode::new(spec, gpu)?),
+        "color_grade" => Box::new(ColorGradeNode::new(spec, project_dir, gpu)?),
+        "raymarch" => Box::new(RaymarchNode::new(spec, gpu)?),
+        "instance" => Box::new(InstanceNode::new(spec, gpu)?),
         "custom_shader" => Box::new(CustomShaderNode::new(spec, project_dir, gpu)?),
         other => {
             return Err(anyhow!(
@@ -97,6 +112,11 @@ pub fn registered_names() -> Vec<&'static str> {
         "transform",
         "levels",
         "displace",
+        "chromatic_aberration",
+        "grain",
+        "color_grade",
+        "raymarch",
+        "instance",
         "custom_shader",
     ]
 }

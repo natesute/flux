@@ -1,0 +1,36 @@
+// 4×4×4 cube grid breathing with the audio.
+
+(
+    version: 1,
+    width: 720,
+    height: 720,
+    fps: 30,
+    tone_map: aces,
+
+    nodes: {
+        "grid": (
+            type: "instance",
+            params: {
+                "cam_x": 4.0,
+                "cam_y": 3.0,
+                "cam_z": 6.0,
+                "fov": 0.8,
+                "base_scale": 0.18,
+                "audio_drive": 1.5,
+                "rim_color": [1.0, 0.8, 0.5, 1.0],
+            },
+        ),
+
+        "glow": (
+            type: "bloom",
+            inputs: ["grid"],
+            params: {
+                "threshold": 0.5,
+                "intensity": 0.3,
+                "radius": 3.0,
+            },
+        ),
+    },
+
+    output: "glow",
+)

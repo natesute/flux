@@ -1,0 +1,8 @@
+---
+source: src/nodes/instance.rs
+expression: stats
+---
+64x64
+mean  R= 59.1 G= 58.0 B= 74.9 A=255.0
+range R= 32-238 G= 32-235 B= 53-232 A=255-255
+nonblack 4096/4096

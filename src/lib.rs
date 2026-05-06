@@ -7,6 +7,7 @@ pub mod audio;
 pub mod engine;
 pub mod nodes;
 pub mod output;
+pub mod preview;
 pub mod project;
 
 #[cfg(test)]

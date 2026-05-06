@@ -1,0 +1,8 @@
+---
+source: src/nodes/raymarch.rs
+expression: stats
+---
+64x64
+mean  R=163.2 G=167.5 B=170.9 A=255.0
+range R=114-236 G= 94-228 B= 60-225 A=255-255
+nonblack 4096/4096

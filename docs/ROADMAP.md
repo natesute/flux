@@ -38,23 +38,23 @@ Goal: enough nodes that you can produce something that resembles a Klsr-style au
 
 ### Still to do for v0.2 polish
 - [x] `displace` — luminance-derivative or RG-vector warp of one input by another
-- [ ] `chromatic_aberration` — RGB channel splitting
-- [ ] `grain` — animated film grain overlay
-- [ ] `color_grade` — LUT-based color grading
-- [ ] Update `examples/` with a piece exercising the full v0.2 chain (`atmospheric.ron` is a start)
+- [x] `chromatic_aberration` — radial RGB channel splitting around a pivot
+- [x] `grain` — animated hash-noise overlay
+- [x] `color_grade` — 3D LUT (256×16 PNG strip) color grading; identity LUT when no path
+- [x] `examples/atmospheric.ron` rewritten to exercise displace, transform, levels, CA, grain
 
 ## v0.3 — 3D and shader-driven generation
 
-- `raymarch` — SDF-based raymarched scenes (volumetric fog, primitive shapes)
-- `instance` — instanced 3D geometry driven by audio
-- [x] `custom_shader` — load user `.wgsl` shaders from project directory (landed early; the binding contract lives in `docs/SHADER_CONVENTIONS.md`)
-- HDR environment maps for reflective surfaces
+- [x] `raymarch` — starter SDF scene (audio-rippled sphere with sky gradient + Lambertian + rim). Users wanting richer scenes should clone `shaders/raymarch.wgsl` and load through `custom_shader`.
+- [x] `instance` — instanced cube grid with depth testing, audio-driven scale, per-instance HSV tinting. The first geometry node; vertex/index/instance buffers + a depth attachment now exist in the engine.
+- [x] `custom_shader` — load user `.wgsl` shaders from project directory; binding contract in `docs/SHADER_CONVENTIONS.md`.
+- HDR environment maps for reflective surfaces (deferred — neither raymarch nor instance is currently reflection-driven).
 
 ## v0.4 — Workflow polish
 
-- Live preview window (winit-based)
+- [x] `flux preview` subcommand opens a winit window and live-renders the project. v1 reads audio for features but does **not** play it back through speakers — wall-clock time loops the audio file.
+- Audio playback in preview (cpal — pulls in alsa-sys on Linux)
 - Hot-reload of shader files
-- `flux preview` subcommand: live audio in, live video out
 - Better error messages for malformed projects
 
 ## v0.5 — Maybe

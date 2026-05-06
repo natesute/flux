@@ -42,6 +42,27 @@ impl Engine {
         })
     }
 
+    /// Cook one frame and return a borrow of the output texture. The
+    /// preview loop calls this once per redraw, then blits the texture to
+    /// the surface; offline rendering uses `render_to_file` instead.
+    pub fn cook_one_frame(
+        &mut self,
+        time: f32,
+        frame_index: u32,
+        audio: crate::audio::FrameAudioFeatures,
+    ) -> Result<&wgpu::Texture> {
+        let mut frame_ctx = FrameContext {
+            gpu: &self.gpu,
+            width: self.width,
+            height: self.height,
+            frame_index,
+            time,
+            audio,
+        };
+        self.graph.cook_frame(&mut frame_ctx)?;
+        Ok(self.graph.output_texture())
+    }
+
     /// Render the project to a video file, driven by the given audio track.
     pub fn render_to_file(
         &mut self,
@@ -52,7 +73,21 @@ impl Engine {
     ) -> Result<()> {
         let track = AudioTrack::load(audio_path)?;
         let fps = fps_override.unwrap_or(self.fps);
-        let total_seconds = duration_override.unwrap_or_else(|| track.duration_seconds());
+        let audio_seconds = track.duration_seconds();
+        let requested_seconds = duration_override.unwrap_or(audio_seconds);
+        // FFmpeg is invoked with `-shortest`, so writing video frames past
+        // the audio length closes the video pipe and crashes the encoder.
+        // Clamp explicitly with a clear log line instead of a broken pipe.
+        let total_seconds = if requested_seconds > audio_seconds {
+            tracing::warn!(
+                "requested duration {:.2}s exceeds audio length {:.2}s — clamping",
+                requested_seconds,
+                audio_seconds
+            );
+            audio_seconds
+        } else {
+            requested_seconds
+        };
         let total_frames = (total_seconds * fps as f32).round() as u32;
 
         let mut encoder = VideoEncoder::start(out_path, self.width, self.height, fps, audio_path)?;

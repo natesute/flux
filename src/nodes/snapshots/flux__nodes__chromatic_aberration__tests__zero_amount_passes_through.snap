@@ -1,0 +1,8 @@
+---
+source: src/nodes/chromatic_aberration.rs
+expression: stats
+---
+32x32
+mean  R=205.0 G=163.0 B=222.0 A=255.0
+range R=205-205 G=163-163 B=222-222 A=255-255
+nonblack 1024/1024

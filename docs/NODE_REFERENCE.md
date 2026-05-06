@@ -221,6 +221,93 @@ Per-pixel color adjustments: gain, brightness, contrast (about a 0.5 pivot), and
 
 ---
 
+## `chromatic_aberration`
+
+Radial RGB channel splitting around a pivot. The classic "cheap lens" / glitch look. Push R outward and B inward.
+
+**Inputs**: 1
+
+**Parameters**:
+
+| Name       | Type   | Default | Description                                                |
+|------------|--------|---------|------------------------------------------------------------|
+| `amount`   | Number | `0.005` | Magnitude of the radial offset, in normalized UV.          |
+| `center_x` | Number | `0.5`   | Pivot x in UV.                                             |
+| `center_y` | Number | `0.5`   | Pivot y in UV.                                             |
+
+---
+
+## `grain`
+
+Animated hash-based film grain added to the input. Cheap and good for finishing a piece.
+
+**Inputs**: 1
+
+**Parameters**:
+
+| Name     | Type   | Default | Description                                                |
+|----------|--------|---------|------------------------------------------------------------|
+| `amount` | Number | `0.04`  | Grain magnitude added to RGB. Audio-bind for kick punches. |
+| `scale`  | Number | `1.0`   | Speck size in pixels. Higher = chunkier grain.             |
+
+---
+
+## `color_grade`
+
+3D LUT color grading via a 256×16 PNG strip — the format Photoshop's "Export Color LUT" produces. With no `path`, an identity LUT is used and the node is a no-op.
+
+**Inputs**: 1
+
+**Parameters**:
+
+| Name        | Type   | Default | Description                                                |
+|-------------|--------|---------|------------------------------------------------------------|
+| `path`      | String | —       | LUT PNG (256×16) relative to the project file. Optional.  |
+| `intensity` | Number | `1.0`   | Mix between input (0) and graded (1).                      |
+
+---
+
+## `raymarch`
+
+Sphere-traced SDF scene, audio-rippled sphere on a sky gradient, with a single directional light and a rim term. The starter geometry node — clone `shaders/raymarch.wgsl` into `custom_shader` for richer scenes.
+
+**Inputs**: 0
+
+**Parameters** (all numbers; colors as RGBA):
+
+| Name           | Default              | Description                                       |
+|----------------|----------------------|---------------------------------------------------|
+| `cam_x/y/z`    | `0, 0.5, 3`          | Camera position.                                  |
+| `look_x/y/z`   | `0, 0, 0`            | Camera target.                                    |
+| `fov`          | `0.9`                | Vertical FOV in radians.                          |
+| `radius`       | `1.0`                | Sphere radius. Bind to bass for pulse.            |
+| `displacement` | `0.05`               | Surface ripple amplitude. Bind for warble.        |
+| `light_x/y/z`  | `0.5, 0.8, 0.3`      | Directional light vector.                         |
+| `sky_top`      | `[0.4,0.6,0.9,1]`    | Sky color at +Y.                                  |
+| `sky_bottom`   | `[0.05,0.05,0.1,1]`  | Sky color at -Y.                                  |
+
+---
+
+## `instance`
+
+A 4×4×4 grid of unit cubes (64 instances) with depth testing, per-instance HSV tinting, and audio-driven scale. v1 geometry is hardcoded; future versions will accept a mesh path.
+
+**Inputs**: 0
+
+**Parameters**:
+
+| Name           | Default              | Description                                       |
+|----------------|----------------------|---------------------------------------------------|
+| `cam_x/y/z`    | `4, 3, 6`            | Camera position.                                  |
+| `look_x/y/z`   | `0, 0, 0`            | Camera target.                                    |
+| `fov`          | `0.8`                | Vertical FOV in radians.                          |
+| `base_scale`   | `0.25`               | Per-cube base scale.                              |
+| `audio_drive` | `1.0`                 | RMS multiplier on top of base_scale.              |
+| `light_x/y/z`  | `0.5, 0.8, 0.4`      | Directional light vector.                         |
+| `rim_color`    | `[1,0.7,0.4,1]`      | Rim highlight color.                              |
+
+---
+
 ## `custom_shader`
 
 Loads a user-authored WGSL fragment shader from a path relative to the project file. The escape hatch from "whatever nodes flux ships with" — once this exists, anything you can write in WGSL is reachable without touching Rust.

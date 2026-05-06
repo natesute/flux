@@ -1,42 +1,100 @@
-// Audio-reactive piece using the full v0.2 node set:
+// Audio-reactive piece exercising most of the v0.2 chain:
 //
-//   noise (animated FBM, scale pulses with bass)
-//     └─► feedback (zoom-out trails, decay shrinks with treble)
-//           └─► bloom (glow scaled by RMS)
+//   noise ──▶ levels ──▶ displace ◀── noise2 (drives the warp)
+//                          │
+//                          ▼
+//                       transform (slow rotation)
+//                          │
+//                          ▼
+//                       feedback (long-lived trails)
+//                          │
+//                          ▼
+//                         bloom
+//                          │
+//                          ▼
+//                  chromatic_aberration
+//                          │
+//                          ▼
+//                        grain
 //
-// This is a recipe for the "atmospheric, drifting" Klsr-style aesthetic.
+// `noise` builds the colored texture, `noise2` is a separate slow-moving
+// grayscale noise used as a flow field. `displace` warps the colored
+// noise by `noise2`'s luminance gradient, `feedback` keeps a long trail,
+// and the post chain (transform → bloom → CA → grain) gives it a finished
+// look. ACES tone mapping handles the highlights.
 
 (
     version: 1,
     width: 1080,
     height: 1080,
     fps: 30,
+    tone_map: aces,
 
     nodes: {
         "noise": (
             type: "noise",
             params: {
-                "color_a": [0.02, 0.0, 0.08, 1.0],
-                "color_b": [1.0, 0.5, 0.1, 1.0],
-                // Scale pulses outward with the bass — the texture grows on hits.
-                "scale": (feature: "bass", scale: 4.0, bias: 1.5),
-                "speed": 0.25,
+                "color_a": [0.05, 0.02, 0.20, 1.0],
+                "color_b": [1.0, 0.55, 0.15, 1.0],
+                "scale": (feature: "bass", scale: 1.5, bias: 2.0),
+                "speed": 0.18,
                 "octaves": 4.0,
-                "contrast": 1.5,
+                "contrast": 1.4,
                 "intensity": 1.0,
+            },
+        ),
+
+        "noise2": (
+            type: "noise",
+            params: {
+                "color_a": [0.0, 0.0, 0.0, 1.0],
+                "color_b": [1.0, 1.0, 1.0, 1.0],
+                "scale": 2.0,
+                "speed": 0.07,
+                "octaves": 3.0,
+                "contrast": 1.0,
+                "intensity": 1.0,
+            },
+        ),
+
+        "punchy": (
+            type: "levels",
+            inputs: ["noise"],
+            params: {
+                "gain": 0.85,
+                "brightness": 0.0,
+                "contrast": 1.1,
+                "saturation": 1.2,
+            },
+        ),
+
+        "warped": (
+            type: "displace",
+            inputs: ["punchy", "noise2"],
+            params: {
+                "amount": (feature: "rms", scale: 0.18, bias: 0.04),
+                "mode": "derivative",
+            },
+        ),
+
+        "spinning": (
+            type: "transform",
+            inputs: ["warped"],
+            params: {
+                "rotation": 0.001,
+                "scale_x": 1.0,
+                "scale_y": 1.0,
             },
         ),
 
         "trails": (
             type: "feedback",
-            inputs: ["noise"],
+            inputs: ["spinning"],
             params: {
-                // Decay close to 1 keeps the trail long. Treble eats the trail
-                // a little so highs cut through cleanly.
-                "decay": (feature: "treble", scale: -0.05, bias: 0.94),
-                "zoom": 1.005,
-                "rotation": 0.002,
-                "mix_in": 0.5,
+                "decay": (feature: "treble", scale: -0.04, bias: 0.95),
+                "zoom": 1.003,
+                "rotation": 0.001,
+                "mix_in": 0.45,
             },
         ),
 
@@ -44,12 +102,29 @@
             type: "bloom",
             inputs: ["trails"],
             params: {
-                "threshold": 0.5,
-                "intensity": (feature: "rms", scale: 1.5, bias: 0.6),
-                "radius": 6.0,
+                "threshold": 0.75,
+                "intensity": (feature: "rms", scale: 0.5, bias: 0.25),
+                "radius": 5.0,
+            },
+        ),
+
+        "ca": (
+            type: "chromatic_aberration",
+            inputs: ["glow"],
+            params: {
+                "amount": (feature: "bass", scale: 0.012, bias: 0.003),
+            },
+        ),
+
+        "final": (
+            type: "grain",
+            inputs: ["ca"],
+            params: {
+                "amount": 0.025,
+                "scale": 1.5,
             },
         ),
     },
 
-    output: "glow",
+    output: "final",
 )
