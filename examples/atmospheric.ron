@@ -1,0 +1,55 @@
+// Audio-reactive piece using the full v0.2 node set:
+//
+//   noise (animated FBM, scale pulses with bass)
+//     └─► feedback (zoom-out trails, decay shrinks with treble)
+//           └─► bloom (glow scaled by RMS)
+//
+// This is a recipe for the "atmospheric, drifting" Klsr-style aesthetic.
+
+(
+    version: 1,
+    width: 1080,
+    height: 1080,
+    fps: 30,
+
+    nodes: {
+        "noise": (
+            type: "noise",
+            params: {
+                "color_a": [0.02, 0.0, 0.08, 1.0],
+                "color_b": [1.0, 0.5, 0.1, 1.0],
+                // Scale pulses outward with the bass — the texture grows on hits.
+                "scale": (feature: "bass", scale: 4.0, bias: 1.5),
+                "speed": 0.25,
+                "octaves": 4.0,
+                "contrast": 1.5,
+                "intensity": 1.0,
+            },
+        ),
+
+        "trails": (
+            type: "feedback",
+            inputs: ["noise"],
+            params: {
+                // Decay close to 1 keeps the trail long. Treble eats the trail
+                // a little so highs cut through cleanly.
+                "decay": (feature: "treble", scale: -0.05, bias: 0.94),
+                "zoom": 1.005,
+                "rotation": 0.002,
+                "mix_in": 0.5,
+            },
+        ),
+
+        "glow": (
+            type: "bloom",
+            inputs: ["trails"],
+            params: {
+                "threshold": 0.5,
+                "intensity": (feature: "rms", scale: 1.5, bias: 0.6),
+                "radius": 6.0,
+            },
+        ),
+    },
+
+    output: "glow",
+)

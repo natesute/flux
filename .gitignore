@@ -1,0 +1,17 @@
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# Output artifacts
+/out/
+*.mp4
+*.mov
+*.png
+*.wav
+!examples/test.wav
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store

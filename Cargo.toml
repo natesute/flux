@@ -1,0 +1,51 @@
+[package]
+name = "flux"
+version = "0.1.0"
+edition = "2021"
+description = "A code-first, agent-friendly audiovisual rendering engine"
+license = "MIT"
+repository = ""
+readme = "README.md"
+
+[dependencies]
+# GPU
+wgpu = "22"
+pollster = "0.3"
+bytemuck = { version = "1.16", features = ["derive"] }
+
+# Math
+glam = { version = "0.29", features = ["bytemuck"] }
+
+# Audio
+hound = "3.5"            # WAV loading
+rustfft = "6.2"          # FFT
+# cpal will be added back in v0.4 for realtime preview/live mode.
+# It pulls in alsa-sys on Linux, which needs libasound2-dev installed.
+
+# Image / encoding
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+# Project files
+serde = { version = "1.0", features = ["derive"] }
+ron = "0.8"
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# Errors / logging
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Utilities
+indexmap = { version = "2.5", features = ["serde"] }
+half = "2.4"
+
+[dev-dependencies]
+insta = "1.40"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1

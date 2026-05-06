@@ -1,0 +1,34 @@
+// Minimal audio-reactive piece: a radial gradient whose intensity
+// pulses with the bass band of the audio track.
+//
+// Run with:
+//   flux render examples/first_loop.ron --audio path/to/song.wav --out out.mp4
+
+(
+    version: 1,
+    width: 1080,
+    height: 1080,
+    fps: 30,
+
+    nodes: {
+        "background": (
+            type: "solid",
+            params: {
+                "color": [0.02, 0.02, 0.05, 1.0],
+                "intensity": 1.0,
+            },
+        ),
+
+        "pulse": (
+            type: "gradient",
+            params: {
+                "inner_color": [1.0, 0.6, 0.2, 1.0],
+                "outer_color": [0.0, 0.0, 0.0, 1.0],
+                "radius": (feature: "bass", scale: 0.6, bias: 0.1),
+                "intensity": (feature: "rms", scale: 2.0, bias: 0.2),
+            },
+        ),
+    },
+
+    output: "pulse",
+)
