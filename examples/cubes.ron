@@ -3,24 +3,30 @@
     width: 720,
     height: 720,
     fps: 30,
-    tone_map: none,
+    tone_map: aces,
     nodes: {
         "grid": (
             type: "instance",
             inputs: [],
             params: {
-                "cam_x": 4.7,
-                "cam_y": 8.6,
-                "cam_z": 19.3,
-                "fov": -0.1,
-                "base_scale": 0.35,
-                "audio_drive": -1.38,
+                "cam_x": 2.6,
+                "cam_y": -1.7,
+                "cam_z": -16.6,
+                "fov": 0.75,
+                "base_scale": 0.4,
+                "audio_drive": -1.66,
                 "rim_color": [
-                    0.8834382,
+                    1.0,
                     0.0,
-                    0.50657153,
+                    0.0,
                     1.0,
                 ],
+                "look_x": -0.2,
+                "look_y": 0.0,
+                "look_z": -5.1,
+                "light_x": 12.6,
+                "light_y": 18.9,
+                "light_z": 22.0,
             },
         ),
         "glow": (
@@ -32,16 +38,6 @@
                 "threshold": 2.13,
                 "intensity": 0.24,
                 "radius": 6.6,
-            },
-        ),
-        "grain": (
-            type: "grain",
-            inputs: [
-                "grid",
-            ],
-            params: {
-                "amount": 6.57,
-                "scale": 15.3,
             },
         ),
         "instance": (
@@ -98,6 +94,27 @@
                 ],
             },
         ),
+        "grain_2": (
+            type: "grain",
+            inputs: [
+                "glow",
+            ],
+            params: {
+                "amount": -0.1,
+                "scale": -9.1,
+            },
+        ),
+        "chromatic_aberration": (
+            type: "chromatic_aberration",
+            inputs: [
+                "grain_2",
+            ],
+            params: {
+                "amount": 0.805,
+                "center_x": 0.77,
+                "center_y": 0.83,
+            },
+        ),
     },
-    output: "glow",
+    output: "chromatic_aberration",
 )

@@ -621,9 +621,12 @@ impl PreviewApp {
                         self.project.output
                     );
                     self.pending_save = Some(Instant::now());
+                    self.inspector_env.engine_error = None;
                 }
                 Err(e) => {
-                    tracing::warn!("inspector edit: rebuild failed (not saved): {e:#}");
+                    let msg = format!("{e:#}");
+                    tracing::warn!("inspector edit: rebuild failed (not saved): {msg}");
+                    self.inspector_env.engine_error = Some(msg);
                 }
             }
         }

@@ -55,6 +55,12 @@ pub struct InspectorEnv {
     pub recording_since: Option<std::time::Instant>,
     /// Persisted between frames so the duration spinner doesn't reset.
     pub record_seconds: f32,
+    /// `Some(msg)` when the most recent inspector edit was rejected by
+    /// the engine and the live preview is still showing an *older*
+    /// valid graph. Cleared the next time the engine accepts a
+    /// rebuild. Surfaces as a red banner at the top of the inspector so
+    /// "I edited but the preview didn't change" stops being a mystery.
+    pub engine_error: Option<String>,
 }
 
 impl Default for InspectorEnv {
@@ -62,6 +68,7 @@ impl Default for InspectorEnv {
         Self {
             recording_since: None,
             record_seconds: 10.0,
+            engine_error: None,
         }
     }
 }
@@ -82,6 +89,32 @@ pub fn ui(ctx: &egui::Context, project: &mut Project, env: &mut InspectorEnv) ->
                 "{}×{} @ {} fps",
                 project.width, project.height, project.fps
             ));
+
+            // Engine-rejection banner. The inspector shows the project
+            // as edited, but the preview is still cooking an older
+            // graph the engine accepted. Without this banner the user
+            // has no idea anything went wrong — they just see the
+            // visual not changing.
+            if let Some(msg) = &env.engine_error {
+                ui.add_space(4.0);
+                let banner = egui::Frame::none()
+                    .fill(egui::Color32::from_rgb(70, 20, 20))
+                    .inner_margin(egui::Margin::same(6.0))
+                    .rounding(egui::Rounding::same(4.0));
+                banner.show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new("engine refused this edit — preview unchanged")
+                            .color(egui::Color32::from_rgb(255, 200, 200))
+                            .strong(),
+                    );
+                    ui.label(
+                        egui::RichText::new(msg)
+                            .color(egui::Color32::from_rgb(255, 220, 220))
+                            .small(),
+                    );
+                });
+            }
+
             ui.separator();
 
             // ---- project-level controls --------------------------------
@@ -309,12 +342,41 @@ fn apply_action(project: &mut Project, action: TopologyAction) {
             project.output = name;
         }
         TopologyAction::Delete { name } => {
-            tracing::info!("inspector: deleted node `{name}`");
+            // Take the deleted node's first input as the splice target.
+            // Anything downstream that referenced X by-name gets that
+            // splice target instead of just having its slot scrubbed —
+            // so deleting a middle-of-chain post effect keeps the chain
+            // intact rather than leaving the next node short an input.
+            // If X had no inputs (a generator), downstream slots
+            // referencing X are dropped entirely; the engine may then
+            // refuse the rebuild and the inspector will surface the
+            // error at the top.
+            let splice_to = project
+                .nodes
+                .get(&name)
+                .and_then(|s| s.inputs.first().cloned());
             project.nodes.shift_remove(&name);
-            // Scrub stale references so a delete leaves the graph in a
-            // valid state instead of a "unknown input node" error.
+
             for (_, spec) in project.nodes.iter_mut() {
-                spec.inputs.retain(|i| i != &name);
+                let mut rewired = Vec::with_capacity(spec.inputs.len());
+                for input in &spec.inputs {
+                    if input != &name {
+                        rewired.push(input.clone());
+                    } else if let Some(r) = &splice_to {
+                        rewired.push(r.clone());
+                    }
+                    // else: drop this slot entirely
+                }
+                spec.inputs = rewired;
+            }
+
+            match &splice_to {
+                Some(r) => {
+                    tracing::info!("inspector: deleted `{name}` (downstream rewired to `{r}`)")
+                }
+                None => tracing::info!(
+                    "inspector: deleted `{name}` (had no inputs; downstream slots dropped)"
+                ),
             }
         }
     }
