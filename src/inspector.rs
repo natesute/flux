@@ -19,10 +19,50 @@ use indexmap::IndexMap;
 use crate::nodes;
 use crate::project::{AudioFeature, NodeSpec, ParamValue, Project, ToneMap};
 
-/// Render the inspector and return whether anything was edited.
-pub fn ui(ctx: &egui::Context, project: &mut Project) -> bool {
+/// What the inspector wants the preview loop to do this frame, beyond
+/// just reading the (possibly mutated) project.
+#[derive(Default)]
+pub struct InspectorOutput {
+    /// True when the project was edited (any param/topology change).
+    pub changed: bool,
+    /// One-shot UI actions queued during this frame's UI pass.
+    pub actions: Vec<UiAction>,
+}
+
+/// User-triggered actions the preview loop dispatches outside the egui
+/// closure. Kept as data, not callbacks, so the inspector stays
+/// purely data-in / data-out.
+pub enum UiAction {
+    /// Save the current cooked frame as a PNG.
+    Screenshot,
+    /// Render `seconds` of video to disk as an mp4 (spawns the offline
+    /// render path as a child process so the preview window stays live).
+    StartRecord { seconds: f32 },
+}
+
+/// State the inspector needs to know to draw correctly but doesn't own.
+pub struct InspectorEnv {
+    /// Set to `Some(start_time)` while a record-to-mp4 child is in
+    /// flight; the inspector greys the record button and shows "rendering…".
+    pub recording_since: Option<std::time::Instant>,
+    /// Persisted between frames so the duration spinner doesn't reset.
+    pub record_seconds: f32,
+}
+
+impl Default for InspectorEnv {
+    fn default() -> Self {
+        Self {
+            recording_since: None,
+            record_seconds: 10.0,
+        }
+    }
+}
+
+/// Render the inspector and return what changed + what the user clicked.
+pub fn ui(ctx: &egui::Context, project: &mut Project, env: &mut InspectorEnv) -> InspectorOutput {
     let mut changed = false;
     let mut actions: Vec<TopologyAction> = Vec::new();
+    let mut ui_actions: Vec<UiAction> = Vec::new();
 
     egui::SidePanel::left("inspector")
         .exact_width(320.0)
@@ -130,6 +170,41 @@ pub fn ui(ctx: &egui::Context, project: &mut Project) -> bool {
 
             ui.add_space(12.0);
             ui.separator();
+
+            // ---- capture / record --------------------------------------
+            ui.label(egui::RichText::new("capture").small().weak());
+            ui.horizontal(|ui| {
+                if ui
+                    .button("📷 screenshot")
+                    .on_hover_text("save current frame as PNG to ~/Desktop")
+                    .clicked()
+                {
+                    ui_actions.push(UiAction::Screenshot);
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("seconds");
+                ui.add(
+                    egui::DragValue::new(&mut env.record_seconds)
+                        .speed(0.5)
+                        .range(0.5..=600.0),
+                );
+                let recording = env.recording_since.is_some();
+                let label = if let Some(start) = env.recording_since {
+                    format!("● rendering… ({:.0}s)", start.elapsed().as_secs_f32())
+                } else {
+                    "⏺ render to mp4".to_string()
+                };
+                let resp = ui.add_enabled(!recording, egui::Button::new(label));
+                if resp.clicked() {
+                    ui_actions.push(UiAction::StartRecord {
+                        seconds: env.record_seconds,
+                    });
+                }
+            });
+
+            ui.add_space(8.0);
+            ui.separator();
             ui.label(
                 egui::RichText::new(
                     "Edits auto-save to the .ron file. Agents editing the same \
@@ -148,7 +223,10 @@ pub fn ui(ctx: &egui::Context, project: &mut Project) -> bool {
         changed = true;
     }
 
-    changed
+    InspectorOutput {
+        changed,
+        actions: ui_actions,
+    }
 }
 
 /// Mutations to the `nodes` IndexMap collected during the UI pass and

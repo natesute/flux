@@ -39,8 +39,8 @@ use winit::window::{Window, WindowId};
 
 use crate::audio::AudioTrack;
 use crate::audio_player::AudioPlayer;
-use crate::engine::{Engine, GpuContext};
-use crate::inspector;
+use crate::engine::{Engine, FrameContext, GpuContext};
+use crate::inspector::{self, InspectorEnv, UiAction};
 use crate::project::Project;
 
 /// Width of the inspector panel in logical pixels.
@@ -98,6 +98,7 @@ struct GraphicsState {
 struct PreviewApp {
     project: Project,
     project_path: PathBuf,
+    audio_path: PathBuf,
     audio: AudioTrack,
     /// Owned cpal output stream; dropped when the app exits. `None` if
     /// the host has no default output device.
@@ -115,6 +116,20 @@ struct PreviewApp {
     /// not yet written to disk. We wait `SAVE_DEBOUNCE` of quiet before
     /// committing so a slider drag isn't a 60-write storm.
     pending_save: Option<Instant>,
+
+    /// State that persists across inspector frames (record duration,
+    /// "rendering…" indicator, etc.).
+    inspector_env: InspectorEnv,
+
+    /// Background `flux render` child kicked off by the record button.
+    /// Polled each frame; on success we `open` the resulting mp4.
+    render_child: Option<RenderChild>,
+}
+
+struct RenderChild {
+    child: std::process::Child,
+    out_path: PathBuf,
+    started: Instant,
 }
 
 struct TrackedFile {
@@ -143,9 +158,17 @@ impl PreviewApp {
                 None
             }
         };
+        // Default record length to the audio clip's length (clamped to a
+        // sensible range), so a typical "render this" click captures the
+        // whole loop.
+        let inspector_env = InspectorEnv {
+            record_seconds: audio_duration.clamp(1.0, 60.0),
+            ..InspectorEnv::default()
+        };
         Ok(Self {
             project: project.clone(),
             project_path: project_path.to_path_buf(),
+            audio_path: audio_path.to_path_buf(),
             audio,
             _audio_player,
             engine: None,
@@ -155,7 +178,92 @@ impl PreviewApp {
             tracked,
             last_reload_check: Instant::now(),
             pending_save: None,
+            inspector_env,
+            render_child: None,
         })
+    }
+
+    /// Save the engine's currently-cooked output as a PNG on the Desktop.
+    /// Uses the same readback + tone-map path as offline rendering.
+    fn save_screenshot(&self) -> Result<PathBuf> {
+        let engine = self
+            .engine
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("engine not ready"))?;
+        let frame_ctx = FrameContext {
+            gpu: &engine.gpu,
+            width: engine.width,
+            height: engine.height,
+            frame_index: 0,
+            time: 0.0,
+            audio: Default::default(),
+        };
+        let pixels = engine
+            .graph
+            .read_output_pixels(&frame_ctx, engine.tone_map)?;
+        let img = image::RgbaImage::from_raw(engine.width, engine.height, pixels)
+            .ok_or_else(|| anyhow::anyhow!("readback produced unexpected pixel count"))?;
+        let path = desktop_path(&format!("flux-{}.png", unix_timestamp()));
+        img.save(&path)
+            .with_context(|| format!("writing screenshot to {}", path.display()))?;
+        let _ = std::process::Command::new("open").arg(&path).spawn();
+        Ok(path)
+    }
+
+    /// Spawn `flux render` as a child process to record `seconds` of the
+    /// current project to mp4. Stored as `render_child` and polled each
+    /// frame; the result is opened on completion.
+    fn start_record(&mut self, seconds: f32) -> Result<()> {
+        if self.render_child.is_some() {
+            return Ok(());
+        }
+        let exe = std::env::current_exe().context("locating flux binary")?;
+        let out_path = desktop_path(&format!("flux-{}.mp4", unix_timestamp()));
+        let child = std::process::Command::new(exe)
+            .arg("render")
+            .arg(&self.project_path)
+            .arg("--audio")
+            .arg(&self.audio_path)
+            .arg("--out")
+            .arg(&out_path)
+            .arg("--duration")
+            .arg(seconds.to_string())
+            .spawn()
+            .context("spawning flux render")?;
+        self.inspector_env.recording_since = Some(Instant::now());
+        self.render_child = Some(RenderChild {
+            child,
+            out_path,
+            started: Instant::now(),
+        });
+        Ok(())
+    }
+
+    /// Non-blocking: if a record child is in flight, check whether it has
+    /// finished and open the resulting mp4.
+    fn poll_record(&mut self) {
+        let Some(rc) = self.render_child.as_mut() else {
+            return;
+        };
+        match rc.child.try_wait() {
+            Ok(Some(status)) => {
+                let elapsed = rc.started.elapsed().as_secs_f32();
+                if status.success() {
+                    tracing::info!("rendered {} in {:.1}s", rc.out_path.display(), elapsed);
+                    let _ = std::process::Command::new("open").arg(&rc.out_path).spawn();
+                } else {
+                    tracing::warn!("render child exited with {status}");
+                }
+                self.render_child = None;
+                self.inspector_env.recording_since = None;
+            }
+            Ok(None) => {} // still running
+            Err(e) => {
+                tracing::warn!("render child poll error: {e}");
+                self.render_child = None;
+                self.inspector_env.recording_since = None;
+            }
+        }
     }
 
     /// If any tracked file's mtime advanced since the last check, attempt
@@ -390,11 +498,10 @@ impl PreviewApp {
         let preview_w = engine.width as f32;
         let preview_h = engine.height as f32;
 
-        let inspector_changed = std::cell::Cell::new(false);
+        let inspector_out = std::cell::RefCell::new(inspector::InspectorOutput::default());
         let full_output = graphics.egui_ctx.run(raw_input, |ctx| {
-            if inspector::ui(ctx, &mut self.project) {
-                inspector_changed.set(true);
-            }
+            *inspector_out.borrow_mut() =
+                inspector::ui(ctx, &mut self.project, &mut self.inspector_env);
             egui::CentralPanel::default().show(ctx, |ui| {
                 let avail = ui.available_size();
                 let aspect = preview_w / preview_h;
@@ -408,15 +515,14 @@ impl PreviewApp {
                 });
             });
         });
-        if inspector_changed.get() {
+        let inspector_out = inspector_out.into_inner();
+        if inspector_out.changed {
             // Apply the edit to the running engine immediately so the next
             // frame reflects it. If the rebuild fails (e.g. you added a
             // node whose required inputs aren't wired yet, or a custom
             // shader path doesn't resolve), keep both the old graph
             // *and* the old on-disk file — saving a broken project would
-            // crash the next launch. The in-memory project keeps your
-            // edit so you can fix it via the inspector and the next
-            // valid edit will commit.
+            // crash the next launch.
             match engine.rebuild_graph(&self.project) {
                 Ok(()) => {
                     self.pending_save = Some(Instant::now());
@@ -426,6 +532,11 @@ impl PreviewApp {
                 }
             }
         }
+        // Stash UI actions to dispatch after rendering this frame, so the
+        // surface present isn't blocked by a child-process spawn or PNG
+        // readback (those would visibly stall the window for a frame or
+        // two).
+        let pending_actions = inspector_out.actions;
 
         graphics
             .egui_state
@@ -575,8 +686,45 @@ impl PreviewApp {
             graphics.egui_renderer.free_texture(id);
         }
 
+        // 8. Now that the frame's on screen, run any queued button
+        //    actions. Doing this *after* present means a screenshot
+        //    readback or a child-process spawn doesn't stall the frame
+        //    the user just clicked the button on.
+        for action in pending_actions {
+            match action {
+                UiAction::Screenshot => match self.save_screenshot() {
+                    Ok(path) => tracing::info!("screenshot saved to {}", path.display()),
+                    Err(e) => tracing::warn!("screenshot failed: {e:#}"),
+                },
+                UiAction::StartRecord { seconds } => {
+                    if let Err(e) = self.start_record(seconds) {
+                        tracing::warn!("record failed to start: {e:#}");
+                    }
+                }
+            }
+        }
+        self.poll_record();
+
         Ok(())
     }
+}
+
+/// Resolve a filename inside the user's Desktop folder. Falls back to
+/// the current directory if `$HOME` isn't set (shouldn't happen on a
+/// real desktop session).
+fn desktop_path(name: &str) -> PathBuf {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    home.map(|h| h.join("Desktop").join(name))
+        .unwrap_or_else(|| PathBuf::from(name))
+}
+
+/// Unix epoch seconds, formatted compactly for filenames.
+fn unix_timestamp() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    format!("{secs}")
 }
 
 fn tone_map_index(t: crate::project::ToneMap) -> u32 {
