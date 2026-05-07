@@ -50,6 +50,12 @@ use crate::project::NodeSpec;
 /// as a slice of `(name, &Texture)` pairs in the order declared in the
 /// project file, and writes its output into the provided `output` texture.
 pub trait Node: Send {
+    /// Downcast hatch used by `Graph::transfer_preservable_state_from` to
+    /// look at concrete node types without wedging a giant enum in. Keep
+    /// the body trivial (`fn as_any_mut(&mut self) -> &mut dyn Any { self }`)
+    /// in every implementation.
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
+
     /// The string this node type is registered under in `node_from_spec`.
     /// Used by `Graph::topology_matches` to detect whether a hot-reload
     /// can take the cheap "patch params in place" path or needs a full

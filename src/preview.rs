@@ -210,6 +210,95 @@ impl PreviewApp {
         Ok(path)
     }
 
+    /// Write a timestamped copy of the current project into a fixed
+    /// "snapshots" folder under the user's `Documents`. The active
+    /// project keeps pointing at the original file — snapshots are
+    /// "I made something cool" side files you can come back to or
+    /// delete later.
+    fn save_snapshot(&self) -> Result<PathBuf> {
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .ok_or_else(|| anyhow::anyhow!("HOME not set; can't pick a snapshots folder"))?;
+        let dir = home.join("Documents/flux/snapshots");
+        std::fs::create_dir_all(&dir)
+            .with_context(|| format!("creating snapshots dir {}", dir.display()))?;
+
+        let stem = self
+            .project_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("flux");
+        let path = dir.join(format!("{stem}-{}.ron", unix_timestamp()));
+        let body = serialize_project(&self.project, None)?;
+        std::fs::write(&path, body)
+            .with_context(|| format!("writing snapshot {}", path.display()))?;
+        // Reveal the snapshots folder in Finder so the user can see it
+        // landed somewhere.
+        let _ = std::process::Command::new("open").arg(&dir).spawn();
+        Ok(path)
+    }
+
+    /// Show a system file dialog for a save destination, write the
+    /// project there, and switch the active project to it (so future
+    /// edits land in the new file). Uses `osascript` so we don't pull
+    /// in a file-dialog crate.
+    fn save_as(&mut self) -> Result<Option<PathBuf>> {
+        let stem = self
+            .project_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("flux");
+        let default_name = format!("{stem}-copy.ron");
+        let script = format!(
+            "try
+  set f to choose file name with prompt \"save flux project as\" default name \"{default_name}\"
+  return POSIX path of f
+on error
+  return \"\"
+end try"
+        );
+        let out = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(&script)
+            .output()
+            .context("spawning osascript")?;
+        let chosen = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if chosen.is_empty() {
+            return Ok(None);
+        }
+        let mut path = PathBuf::from(chosen);
+        if path.extension().is_none() {
+            path.set_extension("ron");
+        }
+
+        let body = serialize_project(&self.project, None)?;
+        std::fs::write(&path, body)
+            .with_context(|| format!("writing project {}", path.display()))?;
+
+        // Switch the active project to the new path. Re-load via
+        // Project::load so source_dir is correct (relative paths in
+        // custom_shader / color_grade resolve against the new dir).
+        let reloaded = Project::load(&path)
+            .with_context(|| format!("reloading project from {}", path.display()))?;
+        self.project = reloaded;
+        self.project_path = path.clone();
+        self.tracked = collect_tracked_files(&self.project, &self.project_path);
+        // Suppress the watcher firing on our own write (and on the
+        // file existing for the first time).
+        if let Some(tf) = self.tracked.iter_mut().find(|t| t.path == path) {
+            tf.mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+        }
+        if let Some(g) = self.graphics.as_ref() {
+            g.window.set_title(&format!(
+                "flux — {} ({}×{})",
+                path.file_name().and_then(|s| s.to_str()).unwrap_or("?"),
+                self.project.width,
+                self.project.height,
+            ));
+        }
+        Ok(Some(path))
+    }
+
     /// Spawn `flux render` as a child process to record `seconds` of the
     /// current project to mp4. Stored as `render_child` and polled each
     /// frame; the result is opened on completion.
@@ -326,15 +415,14 @@ impl PreviewApp {
         }
         self.pending_save = None;
 
-        // Pretty-print so the file stays diff-friendly. ron's pretty
-        // printer collapses single-line tuples; that's fine.
-        let pretty = ron::ser::PrettyConfig::new()
-            .struct_names(false)
-            .indentor("    ".to_string());
-        let serialized = match ron::ser::to_string_pretty(&self.project, pretty) {
+        // Pretty-print so the file stays diff-friendly, and preserve the
+        // leading `//` comment block from the existing file so a
+        // hand-written header survives a GUI tweak.
+        let existing = std::fs::read_to_string(&self.project_path).ok();
+        let serialized = match serialize_project(&self.project, existing.as_deref()) {
             Ok(s) => s,
             Err(e) => {
-                tracing::warn!("inspector save: serialize failed: {e}");
+                tracing::warn!("inspector save: serialize failed: {e:#}");
                 return;
             }
         };
@@ -701,12 +789,64 @@ impl PreviewApp {
                         tracing::warn!("record failed to start: {e:#}");
                     }
                 }
+                UiAction::Snapshot => match self.save_snapshot() {
+                    Ok(path) => tracing::info!("snapshot saved to {}", path.display()),
+                    Err(e) => tracing::warn!("snapshot failed: {e:#}"),
+                },
+                UiAction::SaveAs => match self.save_as() {
+                    Ok(Some(path)) => {
+                        tracing::info!(
+                            "project saved to {}; active project switched",
+                            path.display()
+                        );
+                    }
+                    Ok(None) => {} // user cancelled
+                    Err(e) => tracing::warn!("save as failed: {e:#}"),
+                },
             }
         }
         self.poll_record();
 
         Ok(())
     }
+}
+
+/// Serialize a project to RON, preserving any leading `//` comment
+/// block from `existing` (the previous version of the file, if there is
+/// one). RON's pretty-printer doesn't keep comments, so a hand-written
+/// header with notes about the piece would otherwise vanish on the
+/// first GUI save. The body itself is always rewritten — only the
+/// top-of-file comment block survives.
+fn serialize_project(project: &Project, existing: Option<&str>) -> Result<String> {
+    let header = existing.map(extract_leading_comments).unwrap_or_default();
+    let pretty = ron::ser::PrettyConfig::new()
+        .struct_names(false)
+        .indentor("    ".to_string());
+    let body = ron::ser::to_string_pretty(project, pretty).context("serializing project to RON")?;
+    Ok(if header.is_empty() {
+        body
+    } else {
+        format!("{header}\n{body}")
+    })
+}
+
+/// Strip the leading run of whole-line `//` comments and surrounding
+/// blank lines from a file's text. Stops at the first non-comment
+/// non-blank line.
+fn extract_leading_comments(text: &str) -> String {
+    let mut keep: Vec<&str> = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("//") || trimmed.is_empty() {
+            keep.push(line);
+        } else {
+            break;
+        }
+    }
+    while keep.last().is_some_and(|l| l.trim().is_empty()) {
+        keep.pop();
+    }
+    keep.join("\n")
 }
 
 /// Resolve a filename inside the user's Desktop folder. Falls back to

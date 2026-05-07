@@ -155,7 +155,28 @@ impl FeedbackNode {
     }
 }
 
+impl FeedbackNode {
+    /// Hand off this node's history texture to a freshly-rebuilt
+    /// counterpart so a slider-tweak that triggers a topology rebuild
+    /// (add / delete / rewire) doesn't visually reset the trail.
+    /// Caller is responsible for matching by name.
+    pub fn take_history(&mut self) -> Option<wgpu::Texture> {
+        self.history.take()
+    }
+
+    /// Install a history texture lifted from a previous build of the
+    /// same logical node. `ensure_history` will check the dims on the
+    /// next cook and reallocate if they don't match.
+    pub fn install_history(&mut self, history: wgpu::Texture) {
+        self.history = Some(history);
+    }
+}
+
 impl Node for FeedbackNode {
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
     fn kind(&self) -> &'static str {
         "feedback"
     }

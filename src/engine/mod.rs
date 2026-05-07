@@ -80,7 +80,10 @@ impl Engine {
                 }
             }
         }
-        let graph = Graph::from_project(project, &self.gpu)?;
+        let mut graph = Graph::from_project(project, &self.gpu)?;
+        // Carry history textures across the swap so feedback trails
+        // don't reset every time the topology changes.
+        graph.transfer_preservable_state_from(&mut self.graph);
         self.graph = graph;
         self.width = project.width;
         self.height = project.height;

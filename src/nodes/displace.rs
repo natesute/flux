@@ -92,6 +92,10 @@ impl DisplaceNode {
 }
 
 impl Node for DisplaceNode {
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
     fn kind(&self) -> &'static str {
         "displace"
     }

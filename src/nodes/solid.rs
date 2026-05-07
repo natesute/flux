@@ -25,6 +25,10 @@ impl SolidNode {
 }
 
 impl Node for SolidNode {
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
     fn kind(&self) -> &'static str {
         "solid"
     }

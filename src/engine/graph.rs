@@ -9,7 +9,7 @@ use anyhow::{anyhow, Context, Result};
 use indexmap::IndexMap;
 
 use crate::engine::{FrameContext, GpuContext};
-use crate::nodes::{node_from_spec, BoxedNode};
+use crate::nodes::{node_from_spec, BoxedNode, FeedbackNode};
 use crate::project::{Project, ToneMap};
 
 /// Identifier for a node in the graph. Currently just the node's name from
@@ -116,6 +116,29 @@ impl Graph {
             }
         }
         true
+    }
+
+    /// Lift state from a previous build of the graph (matched by node
+    /// name) into the current one. The motivating case is feedback
+    /// trails: a slow-path rebuild fired by an "add a node" or "rewire"
+    /// click would otherwise reset every trail to black, which makes
+    /// trail-driven pieces basically unusable while you sketch them.
+    /// Other node types could grow their own preservable state here
+    /// later — this is the seam.
+    pub fn transfer_preservable_state_from(&mut self, old: &mut Graph) {
+        for (name, new_node) in self.nodes.iter_mut() {
+            let Some(old_node) = old.nodes.get_mut(name) else {
+                continue;
+            };
+            if let (Some(new_fb), Some(old_fb)) = (
+                new_node.as_any_mut().downcast_mut::<FeedbackNode>(),
+                old_node.as_any_mut().downcast_mut::<FeedbackNode>(),
+            ) {
+                if let Some(history) = old_fb.take_history() {
+                    new_fb.install_history(history);
+                }
+            }
+        }
     }
 
     /// Apply per-node param updates from `project`. Caller guarantees

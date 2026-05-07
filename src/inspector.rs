@@ -38,6 +38,14 @@ pub enum UiAction {
     /// Render `seconds` of video to disk as an mp4 (spawns the offline
     /// render path as a child process so the preview window stays live).
     StartRecord { seconds: f32 },
+    /// Save a copy of the current project to a timestamped file in the
+    /// user's flux snapshots folder. The active project keeps pointing
+    /// at the original — snapshots are forgettable side files.
+    Snapshot,
+    /// Open a system file dialog and write the current project to the
+    /// chosen path. The active project switches to that path so future
+    /// edits go there.
+    SaveAs,
 }
 
 /// State the inspector needs to know to draw correctly but doesn't own.
@@ -171,6 +179,32 @@ pub fn ui(ctx: &egui::Context, project: &mut Project, env: &mut InspectorEnv) ->
             ui.add_space(12.0);
             ui.separator();
 
+            // ---- save --------------------------------------------------
+            ui.label(egui::RichText::new("save").small().weak());
+            ui.horizontal(|ui| {
+                if ui
+                    .button("✨ snapshot")
+                    .on_hover_text(
+                        "drop a timestamped copy of the project into \
+                         ~/Documents/flux/snapshots/",
+                    )
+                    .clicked()
+                {
+                    ui_actions.push(UiAction::Snapshot);
+                }
+                if ui
+                    .button("💾 save as…")
+                    .on_hover_text(
+                        "save under a new name; the active project switches to that file",
+                    )
+                    .clicked()
+                {
+                    ui_actions.push(UiAction::SaveAs);
+                }
+            });
+
+            ui.add_space(6.0);
+
             // ---- capture / record --------------------------------------
             ui.label(egui::RichText::new("capture").small().weak());
             ui.horizontal(|ui| {
@@ -245,12 +279,24 @@ enum TopologyAction {
 fn apply_action(project: &mut Project, action: TopologyAction) {
     match action {
         TopologyAction::Add { name, kind, inputs } => {
+            // Pre-populate params for kinds that require a non-default
+            // value to even instantiate. Empty path string surfaces as a
+            // text-edit in the inspector so the user can fill it in;
+            // until they do, the engine will refuse the rebuild and the
+            // .ron stays unsaved (so the broken state can't be persisted).
+            let mut params = IndexMap::new();
+            if kind == "custom_shader" {
+                params.insert(
+                    "path".to_string(),
+                    ParamValue::String("shaders/your_shader.wgsl".to_string()),
+                );
+            }
             project.nodes.insert(
                 name,
                 NodeSpec {
                     kind,
                     inputs,
-                    params: IndexMap::new(),
+                    params,
                 },
             );
         }

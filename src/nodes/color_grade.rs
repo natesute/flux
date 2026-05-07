@@ -134,6 +134,10 @@ impl ColorGradeNode {
 }
 
 impl Node for ColorGradeNode {
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
     fn kind(&self) -> &'static str {
         "color_grade"
     }

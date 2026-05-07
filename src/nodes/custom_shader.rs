@@ -144,6 +144,10 @@ impl CustomShaderNode {
 }
 
 impl Node for CustomShaderNode {
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
     fn kind(&self) -> &'static str {
         "custom_shader"
     }
