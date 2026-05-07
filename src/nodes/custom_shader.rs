@@ -70,6 +70,7 @@ pub struct CustomShaderNode {
     pipeline: wgpu::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
     sampler: wgpu::Sampler,
+    bind_group: Option<wgpu::BindGroup>,
 }
 
 impl CustomShaderNode {
@@ -139,6 +140,7 @@ impl CustomShaderNode {
             pipeline,
             uniform_buffer,
             sampler: shader_pass::linear_clamp_sampler(gpu),
+            bind_group: None,
         })
     }
 }
@@ -154,6 +156,13 @@ impl Node for CustomShaderNode {
 
     fn input_refs(&self) -> &[String] {
         &self.inputs
+    }
+
+    fn expected_input_count(&self) -> usize {
+        // The shader's bind-group layout was compiled with this many
+        // texture bindings; cook needs the input slice padded to that
+        // length even if the spec wires fewer.
+        self.inputs.len()
     }
 
     fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
@@ -194,42 +203,44 @@ impl Node for CustomShaderNode {
             .queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 
-        // Build texture views ahead of the bind group so they outlive it.
-        let views: Vec<wgpu::TextureView> = inputs
-            .iter()
-            .map(|tex| tex.create_view(&wgpu::TextureViewDescriptor::default()))
-            .collect();
-
-        let mut entries = vec![
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: self.uniform_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::Sampler(&self.sampler),
-            },
-        ];
-        for (i, view) in views.iter().enumerate() {
-            entries.push(wgpu::BindGroupEntry {
-                binding: 2 + i as u32,
-                resource: wgpu::BindingResource::TextureView(view),
-            });
+        if self.bind_group.is_none() {
+            // Build texture views once; they live as long as the bind group.
+            let views: Vec<wgpu::TextureView> = inputs
+                .iter()
+                .map(|tex| tex.create_view(&wgpu::TextureViewDescriptor::default()))
+                .collect();
+            let mut entries = vec![
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ];
+            for (i, view) in views.iter().enumerate() {
+                entries.push(wgpu::BindGroupEntry {
+                    binding: 2 + i as u32,
+                    resource: wgpu::BindingResource::TextureView(view),
+                });
+            }
+            self.bind_group = Some(
+                ctx.gpu
+                    .device
+                    .create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("custom_shader bg"),
+                        layout: &self.bgl,
+                        entries: &entries,
+                    }),
+            );
         }
-        let bind_group = ctx
-            .gpu
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("custom_shader bg"),
-                layout: &self.bgl,
-                entries: &entries,
-            });
 
         shader_pass::run_fullscreen_pass(
             ctx.gpu,
             "custom_shader",
             &self.pipeline,
-            &bind_group,
+            self.bind_group.as_ref().unwrap(),
             output,
         );
         Ok(())

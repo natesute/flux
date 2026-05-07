@@ -181,6 +181,13 @@ impl Graph {
                 let tex = self.textures.get(name).expect("validated at graph build");
                 input_textures.push(tex);
             }
+            // Pad short input lists with the engine's missing-input
+            // black texture, so a node whose input was just deleted
+            // (or never wired) renders black instead of crashing.
+            let expected = node.expected_input_count();
+            while input_textures.len() < expected {
+                input_textures.push(&ctx.gpu.missing_input);
+            }
 
             let output_tex = self
                 .textures

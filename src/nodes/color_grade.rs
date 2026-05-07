@@ -41,17 +41,11 @@ pub struct ColorGradeNode {
     uniform_buffer: wgpu::Buffer,
     sampler: wgpu::Sampler,
     lut_texture: wgpu::Texture,
+    bind_group: Option<wgpu::BindGroup>,
 }
 
 impl ColorGradeNode {
     pub fn new(spec: &NodeSpec, project_dir: &Path, gpu: &GpuContext) -> Result<Self> {
-        if spec.inputs.len() != 1 {
-            return Err(anyhow!(
-                "`color_grade` requires exactly 1 input, got {}",
-                spec.inputs.len()
-            ));
-        }
-
         let lut_path_str = spec
             .params
             .get("path")
@@ -129,6 +123,7 @@ impl ColorGradeNode {
             uniform_buffer,
             sampler: shader_pass::linear_clamp_sampler(gpu),
             lut_texture,
+            bind_group: None,
         })
     }
 }
@@ -144,6 +139,10 @@ impl Node for ColorGradeNode {
 
     fn input_refs(&self) -> &[String] {
         &self.inputs
+    }
+
+    fn expected_input_count(&self) -> usize {
+        1
     }
 
     fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
@@ -167,10 +166,38 @@ impl Node for ColorGradeNode {
         inputs: &[&wgpu::Texture],
         output: &wgpu::Texture,
     ) -> Result<()> {
-        let view_in = inputs[0].create_view(&wgpu::TextureViewDescriptor::default());
-        let view_lut = self
-            .lut_texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        if self.bind_group.is_none() {
+            let view_in = inputs[0].create_view(&wgpu::TextureViewDescriptor::default());
+            let view_lut = self
+                .lut_texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+            self.bind_group = Some(
+                ctx.gpu
+                    .device
+                    .create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("color_grade bg"),
+                        layout: &self.bgl,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: self.uniform_buffer.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu::BindingResource::TextureView(&view_in),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: wgpu::BindingResource::TextureView(&view_lut),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 3,
+                                resource: wgpu::BindingResource::Sampler(&self.sampler),
+                            },
+                        ],
+                    }),
+            );
+        }
 
         let uniforms = Uniforms {
             intensity: self.intensity.resolve_scalar(&ctx.audio),
@@ -180,37 +207,11 @@ impl Node for ColorGradeNode {
             .queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 
-        let bind_group = ctx
-            .gpu
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("color_grade bg"),
-                layout: &self.bgl,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.uniform_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&view_in),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&view_lut),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                ],
-            });
-
         shader_pass::run_fullscreen_pass(
             ctx.gpu,
             "color_grade",
             &self.pipeline,
-            &bind_group,
+            self.bind_group.as_ref().unwrap(),
             output,
         );
         Ok(())

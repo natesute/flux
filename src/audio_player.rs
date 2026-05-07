@@ -48,7 +48,9 @@ impl AudioPlayer {
 
         let muted = Arc::new(AtomicBool::new(false));
 
-        let samples: Arc<[f32]> = Arc::from(track.samples().to_vec().into_boxed_slice());
+        // Share the same backing buffer the analyzer already owns —
+        // `Arc::clone` here is a refcount bump, not a copy.
+        let samples: Arc<[f32]> = track.samples_arc();
         let src_rate = track.sample_rate() as f64;
         let rate_ratio = src_rate / out_sample_rate;
 

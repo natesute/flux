@@ -69,6 +69,15 @@ pub trait Node: Send {
     /// borrow so the per-frame cook loop doesn't allocate.
     fn input_refs(&self) -> &[String];
 
+    /// How many input textures `cook` is guaranteed to receive. The
+    /// engine pads short input lists with a fallback black texture to
+    /// reach this count, so a node can always index `inputs[0]` etc.
+    /// without checking. Default is 0; nodes with required inputs
+    /// override.
+    fn expected_input_count(&self) -> usize {
+        0
+    }
+
     /// Re-read parameter values from a fresh spec **without** recreating
     /// any GPU resources. The caller (`Graph::update_params`) guarantees
     /// `spec.kind == self.kind()` and `spec.inputs == self.input_refs()`.

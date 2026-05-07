@@ -30,6 +30,7 @@ pub struct DisplaceNode {
     pipeline: wgpu::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
     sampler: wgpu::Sampler,
+    bind_group: Option<wgpu::BindGroup>,
 }
 
 fn parse_mode(s: &str) -> Result<u32> {
@@ -46,13 +47,6 @@ fn parse_mode(s: &str) -> Result<u32> {
 
 impl DisplaceNode {
     pub fn new(spec: &NodeSpec, gpu: &GpuContext) -> Result<Self> {
-        if spec.inputs.len() != 2 {
-            return Err(anyhow!(
-                "`displace` requires exactly 2 inputs (src, map), got {}",
-                spec.inputs.len()
-            ));
-        }
-
         let mode = parse_mode(
             spec.params
                 .get("mode")
@@ -87,6 +81,7 @@ impl DisplaceNode {
             pipeline,
             uniform_buffer,
             sampler: shader_pass::linear_clamp_sampler(gpu),
+            bind_group: None,
         })
     }
 }
@@ -102,6 +97,10 @@ impl Node for DisplaceNode {
 
     fn input_refs(&self) -> &[String] {
         &self.inputs
+    }
+
+    fn expected_input_count(&self) -> usize {
+        2
     }
 
     fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
@@ -121,8 +120,36 @@ impl Node for DisplaceNode {
         inputs: &[&wgpu::Texture],
         output: &wgpu::Texture,
     ) -> Result<()> {
-        let view_src = inputs[0].create_view(&wgpu::TextureViewDescriptor::default());
-        let view_map = inputs[1].create_view(&wgpu::TextureViewDescriptor::default());
+        if self.bind_group.is_none() {
+            let view_src = inputs[0].create_view(&wgpu::TextureViewDescriptor::default());
+            let view_map = inputs[1].create_view(&wgpu::TextureViewDescriptor::default());
+            self.bind_group = Some(
+                ctx.gpu
+                    .device
+                    .create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("displace bg"),
+                        layout: &self.bgl,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: self.uniform_buffer.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu::BindingResource::TextureView(&view_src),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: wgpu::BindingResource::TextureView(&view_map),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 3,
+                                resource: wgpu::BindingResource::Sampler(&self.sampler),
+                            },
+                        ],
+                    }),
+            );
+        }
 
         let uniforms = Uniforms {
             amount: self.amount.resolve_scalar(&ctx.audio),
@@ -133,33 +160,13 @@ impl Node for DisplaceNode {
             .queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 
-        let bind_group = ctx
-            .gpu
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("displace bg"),
-                layout: &self.bgl,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.uniform_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&view_src),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&view_map),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                ],
-            });
-
-        shader_pass::run_fullscreen_pass(ctx.gpu, "displace", &self.pipeline, &bind_group, output);
+        shader_pass::run_fullscreen_pass(
+            ctx.gpu,
+            "displace",
+            &self.pipeline,
+            self.bind_group.as_ref().unwrap(),
+            output,
+        );
         Ok(())
     }
 }

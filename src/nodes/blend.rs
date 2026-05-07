@@ -36,6 +36,7 @@ pub struct BlendNode {
     pipeline: wgpu::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
     sampler: wgpu::Sampler,
+    bind_group: Option<wgpu::BindGroup>,
 }
 
 fn parse_mode(s: &str) -> Result<u32> {
@@ -55,13 +56,6 @@ fn parse_mode(s: &str) -> Result<u32> {
 
 impl BlendNode {
     pub fn new(spec: &NodeSpec, gpu: &GpuContext) -> Result<Self> {
-        if spec.inputs.len() != 2 {
-            return Err(anyhow!(
-                "`blend` requires exactly 2 inputs, got {}",
-                spec.inputs.len()
-            ));
-        }
-
         let mode_str = spec
             .params
             .get("mode")
@@ -97,6 +91,7 @@ impl BlendNode {
             pipeline,
             uniform_buffer,
             sampler: shader_pass::linear_clamp_sampler(gpu),
+            bind_group: None,
         })
     }
 }
@@ -112,6 +107,10 @@ impl Node for BlendNode {
 
     fn input_refs(&self) -> &[String] {
         &self.inputs
+    }
+
+    fn expected_input_count(&self) -> usize {
+        2
     }
 
     fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
@@ -132,8 +131,36 @@ impl Node for BlendNode {
         inputs: &[&wgpu::Texture],
         output: &wgpu::Texture,
     ) -> Result<()> {
-        let view_a = inputs[0].create_view(&wgpu::TextureViewDescriptor::default());
-        let view_b = inputs[1].create_view(&wgpu::TextureViewDescriptor::default());
+        if self.bind_group.is_none() {
+            let view_a = inputs[0].create_view(&wgpu::TextureViewDescriptor::default());
+            let view_b = inputs[1].create_view(&wgpu::TextureViewDescriptor::default());
+            self.bind_group = Some(
+                ctx.gpu
+                    .device
+                    .create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("blend bg"),
+                        layout: &self.bgl,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: self.uniform_buffer.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu::BindingResource::TextureView(&view_a),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: wgpu::BindingResource::TextureView(&view_b),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 3,
+                                resource: wgpu::BindingResource::Sampler(&self.sampler),
+                            },
+                        ],
+                    }),
+            );
+        }
 
         let uniforms = Uniforms {
             mode: self.mode,
@@ -145,35 +172,13 @@ impl Node for BlendNode {
             .queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 
-        // Bind group is rebuilt per frame because the input texture views
-        // are not stable across renders. This is cheap.
-        let bind_group = ctx
-            .gpu
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("blend bg"),
-                layout: &self.bgl,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.uniform_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&view_a),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&view_b),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                ],
-            });
-
-        shader_pass::run_fullscreen_pass(ctx.gpu, "blend", &self.pipeline, &bind_group, output);
+        shader_pass::run_fullscreen_pass(
+            ctx.gpu,
+            "blend",
+            &self.pipeline,
+            self.bind_group.as_ref().unwrap(),
+            output,
+        );
         Ok(())
     }
 }

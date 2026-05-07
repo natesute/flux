@@ -4,7 +4,7 @@
 //! `scale_y`) can be bound to an audio feature, so e.g. you can punch the
 //! image outward on every kick by binding `scale_x` and `scale_y` to bass.
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
 
 use crate::engine::{FrameContext, GpuContext};
@@ -39,17 +39,11 @@ pub struct TransformNode {
     pipeline: wgpu::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
     sampler: wgpu::Sampler,
+    bind_group: Option<wgpu::BindGroup>,
 }
 
 impl TransformNode {
     pub fn new(spec: &NodeSpec, gpu: &GpuContext) -> Result<Self> {
-        if spec.inputs.len() != 1 {
-            return Err(anyhow!(
-                "`transform` requires exactly 1 input, got {}",
-                spec.inputs.len()
-            ));
-        }
-
         let device = &gpu.device;
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("transform bgl"),
@@ -79,6 +73,7 @@ impl TransformNode {
             pipeline,
             uniform_buffer,
             sampler: shader_pass::linear_clamp_sampler(gpu),
+            bind_group: None,
         })
     }
 }
@@ -96,6 +91,10 @@ impl Node for TransformNode {
         &self.inputs
     }
 
+    fn expected_input_count(&self) -> usize {
+        1
+    }
+
     fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
         self.offset_x = spec.scalar_param("offset_x", 0.0)?;
         self.offset_y = spec.scalar_param("offset_y", 0.0)?;
@@ -111,7 +110,31 @@ impl Node for TransformNode {
         inputs: &[&wgpu::Texture],
         output: &wgpu::Texture,
     ) -> Result<()> {
-        let view_in = inputs[0].create_view(&wgpu::TextureViewDescriptor::default());
+        if self.bind_group.is_none() {
+            let view_in = inputs[0].create_view(&wgpu::TextureViewDescriptor::default());
+            self.bind_group = Some(
+                ctx.gpu
+                    .device
+                    .create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("transform bg"),
+                        layout: &self.bgl,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: self.uniform_buffer.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu::BindingResource::TextureView(&view_in),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: wgpu::BindingResource::Sampler(&self.sampler),
+                            },
+                        ],
+                    }),
+            );
+        }
 
         let uniforms = Uniforms {
             offset_x: self.offset_x.resolve_scalar(&ctx.audio),
@@ -125,29 +148,13 @@ impl Node for TransformNode {
             .queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 
-        let bind_group = ctx
-            .gpu
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("transform bg"),
-                layout: &self.bgl,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.uniform_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&view_in),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                ],
-            });
-
-        shader_pass::run_fullscreen_pass(ctx.gpu, "transform", &self.pipeline, &bind_group, output);
+        shader_pass::run_fullscreen_pass(
+            ctx.gpu,
+            "transform",
+            &self.pipeline,
+            self.bind_group.as_ref().unwrap(),
+            output,
+        );
         Ok(())
     }
 }

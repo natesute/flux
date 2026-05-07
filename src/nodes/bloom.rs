@@ -7,7 +7,7 @@
 //! multi-pass is a future improvement; the API of this node will not
 //! change when that lands.
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
 
 use crate::engine::{FrameContext, GpuContext};
@@ -36,17 +36,14 @@ pub struct BloomNode {
     pipeline: wgpu::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
     sampler: wgpu::Sampler,
+    /// Bind group is cached across frames — input texture handles are
+    /// stable within an Engine instance, and slow-path rebuilds make a
+    /// fresh node anyway, so we never need to invalidate.
+    bind_group: Option<wgpu::BindGroup>,
 }
 
 impl BloomNode {
     pub fn new(spec: &NodeSpec, gpu: &GpuContext) -> Result<Self> {
-        if spec.inputs.len() != 1 {
-            return Err(anyhow!(
-                "`bloom` requires exactly 1 input, got {}",
-                spec.inputs.len()
-            ));
-        }
-
         let device = &gpu.device;
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("bloom bgl"),
@@ -74,6 +71,7 @@ impl BloomNode {
             pipeline,
             uniform_buffer,
             sampler: shader_pass::linear_clamp_sampler(gpu),
+            bind_group: None,
         })
     }
 }
@@ -91,6 +89,10 @@ impl Node for BloomNode {
         &self.inputs
     }
 
+    fn expected_input_count(&self) -> usize {
+        1
+    }
+
     fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
         self.threshold = spec.scalar_param("threshold", 0.7)?;
         self.intensity = spec.scalar_param("intensity", 1.0)?;
@@ -104,7 +106,31 @@ impl Node for BloomNode {
         inputs: &[&wgpu::Texture],
         output: &wgpu::Texture,
     ) -> Result<()> {
-        let view_in = inputs[0].create_view(&wgpu::TextureViewDescriptor::default());
+        if self.bind_group.is_none() {
+            let view_in = inputs[0].create_view(&wgpu::TextureViewDescriptor::default());
+            self.bind_group = Some(
+                ctx.gpu
+                    .device
+                    .create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("bloom bg"),
+                        layout: &self.bgl,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: self.uniform_buffer.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu::BindingResource::TextureView(&view_in),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: wgpu::BindingResource::Sampler(&self.sampler),
+                            },
+                        ],
+                    }),
+            );
+        }
 
         let uniforms = Uniforms {
             threshold: self.threshold.resolve_scalar(&ctx.audio),
@@ -116,29 +142,13 @@ impl Node for BloomNode {
             .queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 
-        let bind_group = ctx
-            .gpu
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("bloom bg"),
-                layout: &self.bgl,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.uniform_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&view_in),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                ],
-            });
-
-        shader_pass::run_fullscreen_pass(ctx.gpu, "bloom", &self.pipeline, &bind_group, output);
+        shader_pass::run_fullscreen_pass(
+            ctx.gpu,
+            "bloom",
+            &self.pipeline,
+            self.bind_group.as_ref().unwrap(),
+            output,
+        );
         Ok(())
     }
 }

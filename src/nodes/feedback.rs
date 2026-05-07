@@ -6,7 +6,7 @@
 //! the output texture *after* each cook. A small but important detail: on
 //! frame 0 there is no history, so we sample black instead.
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
 
 use crate::engine::{FrameContext, GpuContext};
@@ -52,13 +52,6 @@ pub struct FeedbackNode {
 
 impl FeedbackNode {
     pub fn new(spec: &NodeSpec, gpu: &GpuContext) -> Result<Self> {
-        if spec.inputs.len() != 1 {
-            return Err(anyhow!(
-                "`feedback` requires exactly 1 input, got {}",
-                spec.inputs.len()
-            ));
-        }
-
         let device = &gpu.device;
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("feedback bgl"),
@@ -183,6 +176,10 @@ impl Node for FeedbackNode {
 
     fn input_refs(&self) -> &[String] {
         &self.inputs
+    }
+
+    fn expected_input_count(&self) -> usize {
+        1
     }
 
     fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {

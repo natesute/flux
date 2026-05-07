@@ -30,7 +30,10 @@ pub struct FrameAudioFeatures {
 }
 
 pub struct AudioTrack {
-    samples: Vec<f32>,
+    /// Decoded mono PCM. Held as `Arc<[f32]>` so the cpal output stream
+    /// in `audio_player` can take its own clone without copying the
+    /// whole buffer (typical 90s 48kHz stereo clip is ~17 MB).
+    samples: Arc<[f32]>,
     sample_rate: u32,
     fft: Arc<dyn rustfft::Fft<f32>>,
     window: Vec<f32>,
@@ -77,7 +80,7 @@ impl AudioTrack {
             .collect();
 
         Ok(Self {
-            samples,
+            samples: Arc::from(samples.into_boxed_slice()),
             sample_rate,
             fft,
             window,
@@ -93,6 +96,13 @@ impl AudioTrack {
     /// can stream them to the output device.
     pub fn samples(&self) -> &[f32] {
         &self.samples
+    }
+
+    /// Cheap clone of the shared sample buffer. The cpal output stream
+    /// in `audio_player` uses this — `Arc::clone` is bumping a refcount,
+    /// not copying the audio data.
+    pub fn samples_arc(&self) -> Arc<[f32]> {
+        self.samples.clone()
     }
 
     pub fn sample_rate(&self) -> u32 {
