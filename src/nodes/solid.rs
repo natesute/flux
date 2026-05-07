@@ -25,8 +25,18 @@ impl SolidNode {
 }
 
 impl Node for SolidNode {
+    fn kind(&self) -> &'static str {
+        "solid"
+    }
+
     fn input_refs(&self) -> Vec<String> {
         self.inputs.clone()
+    }
+
+    fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
+        self.color = spec.color_param("color", [1.0, 1.0, 1.0, 1.0])?;
+        self.intensity = spec.scalar_param("intensity", 1.0)?;
+        Ok(())
     }
 
     fn cook(

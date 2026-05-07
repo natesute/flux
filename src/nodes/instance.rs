@@ -276,8 +276,29 @@ impl InstanceNode {
 }
 
 impl Node for InstanceNode {
+    fn kind(&self) -> &'static str {
+        "instance"
+    }
+
     fn input_refs(&self) -> Vec<String> {
         self.inputs.clone()
+    }
+
+    fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
+        self.cam_x = spec.scalar_param("cam_x", 4.0)?;
+        self.cam_y = spec.scalar_param("cam_y", 3.0)?;
+        self.cam_z = spec.scalar_param("cam_z", 6.0)?;
+        self.look_x = spec.scalar_param("look_x", 0.0)?;
+        self.look_y = spec.scalar_param("look_y", 0.0)?;
+        self.look_z = spec.scalar_param("look_z", 0.0)?;
+        self.fov = spec.scalar_param("fov", 0.8)?;
+        self.base_scale = spec.scalar_param("base_scale", 0.25)?;
+        self.audio_drive = spec.scalar_param("audio_drive", 1.0)?;
+        self.light_x = spec.scalar_param("light_x", 0.5)?;
+        self.light_y = spec.scalar_param("light_y", 0.8)?;
+        self.light_z = spec.scalar_param("light_z", 0.4)?;
+        self.rim_color = spec.color_param("rim_color", [1.0, 0.7, 0.4, 1.0])?;
+        Ok(())
     }
 
     fn cook(

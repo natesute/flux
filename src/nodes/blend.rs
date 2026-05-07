@@ -102,8 +102,24 @@ impl BlendNode {
 }
 
 impl Node for BlendNode {
+    fn kind(&self) -> &'static str {
+        "blend"
+    }
+
     fn input_refs(&self) -> Vec<String> {
         self.inputs.clone()
+    }
+
+    fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
+        let mode_str = spec
+            .params
+            .get("mode")
+            .and_then(|v| v.as_string())
+            .unwrap_or("over");
+        self.mode = parse_mode(mode_str)?;
+        self.factor = spec.scalar_param("factor", 1.0)?;
+        self.opacity = spec.scalar_param("opacity", 1.0)?;
+        Ok(())
     }
 
     fn cook(

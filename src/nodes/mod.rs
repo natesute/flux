@@ -50,10 +50,27 @@ use crate::project::NodeSpec;
 /// as a slice of `(name, &Texture)` pairs in the order declared in the
 /// project file, and writes its output into the provided `output` texture.
 pub trait Node: Send {
+    /// The string this node type is registered under in `node_from_spec`.
+    /// Used by `Graph::topology_matches` to detect whether a hot-reload
+    /// can take the cheap "patch params in place" path or needs a full
+    /// rebuild.
+    fn kind(&self) -> &'static str;
+
     /// Names of input nodes, in the order they should be passed to `cook`.
     /// Pulled from the project file at construction; cached here so the
     /// graph can topologically sort without re-parsing.
     fn input_refs(&self) -> Vec<String>;
+
+    /// Re-read parameter values from a fresh spec **without** recreating
+    /// any GPU resources. The caller (`Graph::update_params`) guarantees
+    /// `spec.kind == self.kind()` and `spec.inputs == self.input_refs()`.
+    /// Use this on the slider-drag hot path: building a render pipeline
+    /// is hundreds of microseconds; flipping a `ParamValue` is nothing.
+    ///
+    /// Return `Err` only if the new spec can't be applied in place
+    /// (e.g. a `custom_shader` whose source path changed); the caller
+    /// will fall back to a full rebuild.
+    fn update_params(&mut self, spec: &NodeSpec) -> Result<()>;
 
     /// Render this node's output for the current frame.
     fn cook(

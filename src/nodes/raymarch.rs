@@ -106,8 +106,30 @@ impl RaymarchNode {
 }
 
 impl Node for RaymarchNode {
+    fn kind(&self) -> &'static str {
+        "raymarch"
+    }
+
     fn input_refs(&self) -> Vec<String> {
         self.inputs.clone()
+    }
+
+    fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
+        self.cam_x = spec.scalar_param("cam_x", 0.0)?;
+        self.cam_y = spec.scalar_param("cam_y", 0.5)?;
+        self.cam_z = spec.scalar_param("cam_z", 3.0)?;
+        self.look_x = spec.scalar_param("look_x", 0.0)?;
+        self.look_y = spec.scalar_param("look_y", 0.0)?;
+        self.look_z = spec.scalar_param("look_z", 0.0)?;
+        self.fov = spec.scalar_param("fov", 0.9)?;
+        self.radius = spec.scalar_param("radius", 1.0)?;
+        self.displacement = spec.scalar_param("displacement", 0.05)?;
+        self.light_x = spec.scalar_param("light_x", 0.5)?;
+        self.light_y = spec.scalar_param("light_y", 0.8)?;
+        self.light_z = spec.scalar_param("light_z", 0.3)?;
+        self.sky_top = spec.color_param("sky_top", [0.4, 0.6, 0.9, 1.0])?;
+        self.sky_bottom = spec.color_param("sky_bottom", [0.05, 0.05, 0.1, 1.0])?;
+        Ok(())
     }
 
     fn cook(

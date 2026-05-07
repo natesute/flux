@@ -82,8 +82,23 @@ impl NoiseNode {
 }
 
 impl Node for NoiseNode {
+    fn kind(&self) -> &'static str {
+        "noise"
+    }
+
     fn input_refs(&self) -> Vec<String> {
         self.inputs.clone()
+    }
+
+    fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
+        self.color_a = spec.color_param("color_a", [0.0, 0.0, 0.0, 1.0])?;
+        self.color_b = spec.color_param("color_b", [1.0, 1.0, 1.0, 1.0])?;
+        self.scale = spec.scalar_param("scale", 3.0)?;
+        self.speed = spec.scalar_param("speed", 0.3)?;
+        self.octaves = spec.scalar_param("octaves", 4.0)?;
+        self.contrast = spec.scalar_param("contrast", 1.0)?;
+        self.intensity = spec.scalar_param("intensity", 1.0)?;
+        Ok(())
     }
 
     fn cook(

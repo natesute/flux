@@ -90,6 +90,51 @@ impl Graph {
         })
     }
 
+    /// True if `project` is structurally identical to the live graph —
+    /// same set/order of node names, same node `kind` for each, same
+    /// inputs, same output, same resolution. When this returns true,
+    /// `update_params` can apply the diff without touching any GPU
+    /// resource other than uniforms.
+    pub fn topology_matches(&self, project: &Project) -> bool {
+        if self.output_id != project.output {
+            return false;
+        }
+        if self.nodes.len() != project.nodes.len() {
+            return false;
+        }
+        for ((live_name, live_node), (spec_name, spec)) in
+            self.nodes.iter().zip(project.nodes.iter())
+        {
+            if live_name != spec_name {
+                return false;
+            }
+            if live_node.kind() != spec.kind {
+                return false;
+            }
+            if live_node.input_refs() != spec.inputs {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Apply per-node param updates from `project`. Caller guarantees
+    /// `topology_matches(project)` was true. Any node whose
+    /// `update_params` errors (e.g. a `custom_shader` whose `path`
+    /// changed) propagates up so the caller can fall back to a full
+    /// rebuild.
+    pub fn update_params(&mut self, project: &Project) -> Result<()> {
+        for (name, spec) in &project.nodes {
+            let node = self
+                .nodes
+                .get_mut(name)
+                .expect("topology_matches confirmed presence");
+            node.update_params(spec)
+                .with_context(|| format!("updating params for `{name}`"))?;
+        }
+        Ok(())
+    }
+
     /// Evaluate every node for the current frame, in topological order.
     pub fn cook_frame(&mut self, ctx: &mut FrameContext) -> Result<()> {
         // We need to feed each node references to its input textures. To

@@ -156,8 +156,22 @@ impl FeedbackNode {
 }
 
 impl Node for FeedbackNode {
+    fn kind(&self) -> &'static str {
+        "feedback"
+    }
+
     fn input_refs(&self) -> Vec<String> {
         self.inputs.clone()
+    }
+
+    fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
+        self.decay = spec.scalar_param("decay", 0.92)?;
+        self.zoom = spec.scalar_param("zoom", 1.01)?;
+        self.rotation = spec.scalar_param("rotation", 0.0)?;
+        self.offset_x = spec.scalar_param("offset_x", 0.0)?;
+        self.offset_y = spec.scalar_param("offset_y", 0.0)?;
+        self.mix_in = spec.scalar_param("mix_in", 1.0)?;
+        Ok(())
     }
 
     fn cook(

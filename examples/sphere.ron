@@ -1,34 +1,42 @@
-// Smallest raymarch demo. Audio-modulated sphere displacement.
-
 (
     version: 1,
     width: 720,
     height: 720,
     fps: 30,
     tone_map: aces,
-
     nodes: {
         "scene": (
             type: "raymarch",
+            inputs: [],
             params: {
-                "cam_z": 3.5,
-                "radius": (feature: "rms", scale: 0.3, bias: 0.9),
-                "displacement": (feature: "bass", scale: 0.15, bias: 0.05),
-                "sky_top": [0.4, 0.5, 0.7, 1.0],
-                "sky_bottom": [0.05, 0.02, 0.08, 1.0],
+                "cam_z": 13.6,
+                "radius": 3.15,
+                "displacement": 6.02,
+                "sky_top": [
+                    0.4,
+                    0.5,
+                    0.7,
+                    1.0,
+                ],
+                "sky_bottom": [
+                    0.12582271,
+                    0.07097755,
+                    0.059476253,
+                    1.0,
+                ],
             },
         ),
-
         "glow": (
             type: "bloom",
-            inputs: ["scene"],
+            inputs: [
+                "scene",
+            ],
             params: {
-                "threshold": 0.6,
-                "intensity": 0.4,
-                "radius": 4.0,
+                "threshold": -3.8,
+                "intensity": -0.25,
+                "radius": -4.4,
             },
         ),
     },
-
     output: "glow",
 )

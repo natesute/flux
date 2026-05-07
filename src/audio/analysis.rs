@@ -2,6 +2,7 @@
 //! features (FFT bands, RMS) by sampling a window centered on the frame's
 //! timestamp.
 
+use std::cell::RefCell;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -33,6 +34,11 @@ pub struct AudioTrack {
     sample_rate: u32,
     fft: Arc<dyn rustfft::Fft<f32>>,
     window: Vec<f32>,
+    /// Reusable FFT scratch buffer. Wrapped in RefCell so `features_at`
+    /// can stay `&self` (called from the preview's render loop alongside
+    /// other shared borrows). Costs a runtime borrow check; saves 16 KB
+    /// of allocation per call.
+    fft_buf: RefCell<Vec<Complex<f32>>>,
 }
 
 impl AudioTrack {
@@ -75,6 +81,7 @@ impl AudioTrack {
             sample_rate,
             fft,
             window,
+            fft_buf: RefCell::new(vec![Complex::new(0.0, 0.0); FFT_SIZE]),
         })
     }
 
@@ -100,18 +107,19 @@ impl AudioTrack {
         let half = FFT_SIZE as isize / 2;
         let start = center - half;
 
-        // Build windowed buffer.
-        let mut buf: Vec<Complex<f32>> = (0..FFT_SIZE)
-            .map(|i| {
-                let idx = start + i as isize;
-                let s = if idx < 0 || idx as usize >= self.samples.len() {
-                    0.0
-                } else {
-                    self.samples[idx as usize]
-                };
-                Complex::new(s * self.window[i], 0.0)
-            })
-            .collect();
+        let mut buf = self.fft_buf.borrow_mut();
+
+        // Refill the windowed buffer in place. Same math as before, but
+        // no fresh Vec per call.
+        for (i, slot) in buf.iter_mut().enumerate() {
+            let idx = start + i as isize;
+            let s = if idx < 0 || idx as usize >= self.samples.len() {
+                0.0
+            } else {
+                self.samples[idx as usize]
+            };
+            *slot = Complex::new(s * self.window[i], 0.0);
+        }
 
         // RMS from the time-domain windowed signal.
         let rms = (buf.iter().map(|c| c.re * c.re).sum::<f32>() / FFT_SIZE as f32).sqrt();
@@ -119,7 +127,6 @@ impl AudioTrack {
         // FFT.
         self.fft.process(&mut buf);
 
-        // Frequency per bin.
         let bin_hz = self.sample_rate as f32 / FFT_SIZE as f32;
         let band_mag = |lo: f32, hi: f32| -> f32 {
             let lo_bin = (lo / bin_hz) as usize;
@@ -129,7 +136,6 @@ impl AudioTrack {
             }
             let sum: f32 = buf[lo_bin..hi_bin].iter().map(|c| c.norm()).sum();
             // Normalize: empirical scaling so a loud band ends up around 1.0.
-            // This is intentionally rough; downstream nodes can re-scale.
             let avg = sum / (hi_bin - lo_bin) as f32;
             (avg * 0.05).min(1.0)
         };

@@ -78,8 +78,20 @@ impl GradientNode {
 }
 
 impl Node for GradientNode {
+    fn kind(&self) -> &'static str {
+        "gradient"
+    }
+
     fn input_refs(&self) -> Vec<String> {
         self.inputs.clone()
+    }
+
+    fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
+        self.inner_color = spec.color_param("inner_color", [1.0, 1.0, 1.0, 1.0])?;
+        self.outer_color = spec.color_param("outer_color", [0.0, 0.0, 0.0, 1.0])?;
+        self.radius = spec.scalar_param("radius", 0.5)?;
+        self.intensity = spec.scalar_param("intensity", 1.0)?;
+        Ok(())
     }
 
     fn cook(

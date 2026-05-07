@@ -73,8 +73,19 @@ impl ChromaticAberrationNode {
 }
 
 impl Node for ChromaticAberrationNode {
+    fn kind(&self) -> &'static str {
+        "chromatic_aberration"
+    }
+
     fn input_refs(&self) -> Vec<String> {
         self.inputs.clone()
+    }
+
+    fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
+        self.amount = spec.scalar_param("amount", 0.005)?;
+        self.center_x = spec.scalar_param("center_x", 0.5)?;
+        self.center_y = spec.scalar_param("center_y", 0.5)?;
+        Ok(())
     }
 
     fn cook(

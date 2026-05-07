@@ -31,6 +31,10 @@ struct Uniforms {
 pub struct ColorGradeNode {
     inputs: Vec<String>,
     intensity: ParamValue,
+    /// Path the LUT was loaded from (relative, as in the spec). `None`
+    /// means the identity LUT was used. We hang onto this so
+    /// `update_params` can detect a path change and force a rebuild.
+    lut_path: Option<String>,
 
     bgl: wgpu::BindGroupLayout,
     pipeline: wgpu::RenderPipeline,
@@ -48,7 +52,12 @@ impl ColorGradeNode {
             ));
         }
 
-        let lut_pixels = match spec.params.get("path").and_then(|v| v.as_string()) {
+        let lut_path_str = spec
+            .params
+            .get("path")
+            .and_then(|v| v.as_string())
+            .map(String::from);
+        let lut_pixels = match &lut_path_str {
             Some(p) => {
                 let abs = project_dir.join(p);
                 load_lut_png(&abs)?
@@ -114,6 +123,7 @@ impl ColorGradeNode {
         Ok(Self {
             inputs: spec.inputs.clone(),
             intensity: spec.scalar_param("intensity", 1.0)?,
+            lut_path: lut_path_str,
             bgl,
             pipeline,
             uniform_buffer,
@@ -124,8 +134,27 @@ impl ColorGradeNode {
 }
 
 impl Node for ColorGradeNode {
+    fn kind(&self) -> &'static str {
+        "color_grade"
+    }
+
     fn input_refs(&self) -> Vec<String> {
         self.inputs.clone()
+    }
+
+    fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
+        let new_path = spec
+            .params
+            .get("path")
+            .and_then(|v| v.as_string())
+            .map(String::from);
+        if new_path != self.lut_path {
+            return Err(anyhow!(
+                "color_grade `path` changed (LUT must be reloaded; full rebuild required)"
+            ));
+        }
+        self.intensity = spec.scalar_param("intensity", 1.0)?;
+        Ok(())
     }
 
     fn cook(

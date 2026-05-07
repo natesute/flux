@@ -79,8 +79,19 @@ impl BloomNode {
 }
 
 impl Node for BloomNode {
+    fn kind(&self) -> &'static str {
+        "bloom"
+    }
+
     fn input_refs(&self) -> Vec<String> {
         self.inputs.clone()
+    }
+
+    fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
+        self.threshold = spec.scalar_param("threshold", 0.7)?;
+        self.intensity = spec.scalar_param("intensity", 1.0)?;
+        self.radius = spec.scalar_param("radius", 4.0)?;
+        Ok(())
     }
 
     fn cook(

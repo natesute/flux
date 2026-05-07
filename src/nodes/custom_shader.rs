@@ -61,6 +61,10 @@ struct StockUniforms {
 
 pub struct CustomShaderNode {
     inputs: Vec<String>,
+    /// Source path the current pipeline was compiled from. `None` when
+    /// constructed directly from source via `from_source` (test harness).
+    /// Used by `update_params` to detect path changes.
+    shader_path: Option<String>,
 
     bgl: wgpu::BindGroupLayout,
     pipeline: wgpu::RenderPipeline,
@@ -84,6 +88,7 @@ impl CustomShaderNode {
             .with_context(|| format!("compiling custom shader {}", abs.display()))
             .map(|mut n| {
                 n.inputs = spec.inputs.clone();
+                n.shader_path = Some(path.to_string());
                 n
             })
     }
@@ -129,6 +134,7 @@ impl CustomShaderNode {
 
         Ok(Self {
             inputs: Vec::new(),
+            shader_path: None,
             bgl,
             pipeline,
             uniform_buffer,
@@ -138,8 +144,29 @@ impl CustomShaderNode {
 }
 
 impl Node for CustomShaderNode {
+    fn kind(&self) -> &'static str {
+        "custom_shader"
+    }
+
     fn input_refs(&self) -> Vec<String> {
         self.inputs.clone()
+    }
+
+    fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
+        // Only the path matters for in-place updates — there are no
+        // tunable params on a custom shader. If the path changed the
+        // node has to be rebuilt to recompile the new shader source.
+        let new_path = spec
+            .params
+            .get("path")
+            .and_then(|v| v.as_string())
+            .map(String::from);
+        if new_path != self.shader_path {
+            return Err(anyhow!(
+                "custom_shader `path` changed (recompile required; full rebuild)"
+            ));
+        }
+        Ok(())
     }
 
     fn cook(

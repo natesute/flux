@@ -77,8 +77,20 @@ impl LevelsNode {
 }
 
 impl Node for LevelsNode {
+    fn kind(&self) -> &'static str {
+        "levels"
+    }
+
     fn input_refs(&self) -> Vec<String> {
         self.inputs.clone()
+    }
+
+    fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
+        self.gain = spec.scalar_param("gain", 1.0)?;
+        self.brightness = spec.scalar_param("brightness", 0.0)?;
+        self.contrast = spec.scalar_param("contrast", 1.0)?;
+        self.saturation = spec.scalar_param("saturation", 1.0)?;
+        Ok(())
     }
 
     fn cook(

@@ -92,8 +92,23 @@ impl DisplaceNode {
 }
 
 impl Node for DisplaceNode {
+    fn kind(&self) -> &'static str {
+        "displace"
+    }
+
     fn input_refs(&self) -> Vec<String> {
         self.inputs.clone()
+    }
+
+    fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
+        self.amount = spec.scalar_param("amount", 0.05)?;
+        self.mode = parse_mode(
+            spec.params
+                .get("mode")
+                .and_then(|v| v.as_string())
+                .unwrap_or("derivative"),
+        )?;
+        Ok(())
     }
 
     fn cook(

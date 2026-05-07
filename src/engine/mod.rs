@@ -42,16 +42,44 @@ impl Engine {
         })
     }
 
-    /// Rebuild the cooked graph in place from a (presumably reloaded)
-    /// project. Used by the preview window's hot-reload path: GPU device,
-    /// surface, and blit pipeline all stay alive across the swap. If
-    /// graph construction fails (bad RON, shader compile error, etc.)
-    /// the engine is left untouched and the error is returned for the
-    /// caller to log.
+    /// Apply a (presumably reloaded) project to the engine.
     ///
-    /// Feedback node history is **not** preserved across rebuilds yet —
-    /// trails will restart on every reload. Tracked as a follow-up.
+    /// Fast path: if the new project has the same topology — same set of
+    /// node names in the same order, same `kind` per node, same inputs,
+    /// same output, same resolution — then we just patch each node's
+    /// parameter values in place. No pipeline recreation, no buffer
+    /// allocation, no texture realloc. This is what the slider-drag and
+    /// agent-edit hot paths almost always hit, since neither typically
+    /// changes the topology.
+    ///
+    /// Slow path: a full `Graph::from_project` rebuild against the
+    /// existing GPU device. Used when nodes are added/removed/rewired,
+    /// resolution changes, or a `custom_shader`/`color_grade` path
+    /// changes (those need to recompile/reload from disk).
+    ///
+    /// Either way: GPU device, surface, blit pipeline, and audio stream
+    /// all stay alive across the swap. On failure the engine is left
+    /// untouched and the error is returned for the caller to log.
+    ///
+    /// Feedback node history is **not** preserved across slow-path
+    /// rebuilds; tracked as a follow-up. The fast path leaves history
+    /// alone, which is part of why it's worth taking.
     pub fn rebuild_graph(&mut self, project: &Project) -> Result<()> {
+        let resolution_changed = project.width != self.width || project.height != self.height;
+        if !resolution_changed && self.graph.topology_matches(project) {
+            // Try the fast path; if a node refuses (e.g. custom_shader path
+            // changed), fall through to the full rebuild.
+            match self.graph.update_params(project) {
+                Ok(()) => {
+                    self.fps = project.fps;
+                    self.tone_map = project.tone_map;
+                    return Ok(());
+                }
+                Err(e) => {
+                    tracing::debug!("fast-path update_params declined ({e:#}); rebuilding graph");
+                }
+            }
+        }
         let graph = Graph::from_project(project, &self.gpu)?;
         self.graph = graph;
         self.width = project.width;

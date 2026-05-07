@@ -84,8 +84,21 @@ impl TransformNode {
 }
 
 impl Node for TransformNode {
+    fn kind(&self) -> &'static str {
+        "transform"
+    }
+
     fn input_refs(&self) -> Vec<String> {
         self.inputs.clone()
+    }
+
+    fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
+        self.offset_x = spec.scalar_param("offset_x", 0.0)?;
+        self.offset_y = spec.scalar_param("offset_y", 0.0)?;
+        self.rotation = spec.scalar_param("rotation", 0.0)?;
+        self.scale_x = spec.scalar_param("scale_x", 1.0)?;
+        self.scale_y = spec.scalar_param("scale_y", 1.0)?;
+        Ok(())
     }
 
     fn cook(

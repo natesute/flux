@@ -70,8 +70,18 @@ impl GrainNode {
 }
 
 impl Node for GrainNode {
+    fn kind(&self) -> &'static str {
+        "grain"
+    }
+
     fn input_refs(&self) -> Vec<String> {
         self.inputs.clone()
+    }
+
+    fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
+        self.amount = spec.scalar_param("amount", 0.04)?;
+        self.scale = spec.scalar_param("scale", 1.0)?;
+        Ok(())
     }
 
     fn cook(
