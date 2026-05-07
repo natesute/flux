@@ -32,8 +32,11 @@ ron = "0.8"
 # CLI
 clap = { version = "4.5", features = ["derive"] }
 
-# Windowing (for `flux preview`)
+# Windowing + immediate-mode UI (for `flux preview`)
 winit = "0.30"
+egui = "0.29"
+egui-wgpu = "0.29"
+egui-winit = "0.29"
 
 # Errors / logging
 anyhow = "1.0"

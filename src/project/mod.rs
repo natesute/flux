@@ -2,7 +2,7 @@
 
 mod schema;
 
-pub use schema::{NodeSpec, ParamValue, Project, ToneMap};
+pub use schema::{AudioFeature, NodeSpec, ParamValue, Project, ToneMap};
 
 use std::path::Path;
 

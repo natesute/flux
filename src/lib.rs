@@ -5,6 +5,7 @@
 
 pub mod audio;
 pub mod engine;
+pub mod inspector;
 pub mod nodes;
 pub mod output;
 pub mod preview;
