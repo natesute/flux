@@ -87,8 +87,8 @@ impl Node for BloomNode {
         "bloom"
     }
 
-    fn input_refs(&self) -> Vec<String> {
-        self.inputs.clone()
+    fn input_refs(&self) -> &[String] {
+        &self.inputs
     }
 
     fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
@@ -101,12 +101,10 @@ impl Node for BloomNode {
     fn cook(
         &mut self,
         ctx: &FrameContext,
-        inputs: &[(String, &wgpu::Texture)],
+        inputs: &[&wgpu::Texture],
         output: &wgpu::Texture,
     ) -> Result<()> {
-        let view_in = inputs[0]
-            .1
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let view_in = inputs[0].create_view(&wgpu::TextureViewDescriptor::default());
 
         let uniforms = Uniforms {
             threshold: self.threshold.resolve_scalar(&ctx.audio),
@@ -162,7 +160,7 @@ mod tests {
         .unwrap();
         let mut node = BloomNode::new(&spec, &harness.gpu).unwrap();
         let src = harness.constant_texture([0.4, 0.4, 0.4, 1.0]);
-        let inputs: &[(String, &wgpu::Texture)] = &[("src".to_string(), &src)];
+        let inputs: &[&wgpu::Texture] = &[&src];
         let stats = harness.cook(&mut node, inputs, FrameAudioFeatures::default(), 0.0);
         insta::assert_snapshot!(stats);
     }

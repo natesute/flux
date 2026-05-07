@@ -100,8 +100,8 @@ impl Node for DisplaceNode {
         "displace"
     }
 
-    fn input_refs(&self) -> Vec<String> {
-        self.inputs.clone()
+    fn input_refs(&self) -> &[String] {
+        &self.inputs
     }
 
     fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
@@ -118,15 +118,11 @@ impl Node for DisplaceNode {
     fn cook(
         &mut self,
         ctx: &FrameContext,
-        inputs: &[(String, &wgpu::Texture)],
+        inputs: &[&wgpu::Texture],
         output: &wgpu::Texture,
     ) -> Result<()> {
-        let view_src = inputs[0]
-            .1
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        let view_map = inputs[1]
-            .1
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let view_src = inputs[0].create_view(&wgpu::TextureViewDescriptor::default());
+        let view_map = inputs[1].create_view(&wgpu::TextureViewDescriptor::default());
 
         let uniforms = Uniforms {
             amount: self.amount.resolve_scalar(&ctx.audio),
@@ -190,8 +186,7 @@ mod tests {
         let mut node = DisplaceNode::new(&spec, &harness.gpu).unwrap();
         let src = harness.constant_texture([0.5, 0.25, 0.75, 1.0]);
         let map = harness.constant_texture([0.5, 0.5, 0.5, 1.0]);
-        let inputs: &[(String, &wgpu::Texture)] =
-            &[("src".to_string(), &src), ("map".to_string(), &map)];
+        let inputs: &[&wgpu::Texture] = &[&src, &map];
         let stats = harness.cook(&mut node, inputs, FrameAudioFeatures::default(), 0.0);
         insta::assert_snapshot!(stats);
     }
@@ -212,8 +207,7 @@ mod tests {
         let mut node = DisplaceNode::new(&spec, &harness.gpu).unwrap();
         let src = harness.constant_texture([0.5, 0.25, 0.75, 1.0]);
         let map = harness.constant_texture([0.5, 0.5, 0.0, 1.0]);
-        let inputs: &[(String, &wgpu::Texture)] =
-            &[("src".to_string(), &src), ("map".to_string(), &map)];
+        let inputs: &[&wgpu::Texture] = &[&src, &map];
         let stats = harness.cook(&mut node, inputs, FrameAudioFeatures::default(), 0.0);
         insta::assert_snapshot!(stats);
     }

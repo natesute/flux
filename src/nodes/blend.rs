@@ -110,8 +110,8 @@ impl Node for BlendNode {
         "blend"
     }
 
-    fn input_refs(&self) -> Vec<String> {
-        self.inputs.clone()
+    fn input_refs(&self) -> &[String] {
+        &self.inputs
     }
 
     fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
@@ -129,15 +129,11 @@ impl Node for BlendNode {
     fn cook(
         &mut self,
         ctx: &FrameContext,
-        inputs: &[(String, &wgpu::Texture)],
+        inputs: &[&wgpu::Texture],
         output: &wgpu::Texture,
     ) -> Result<()> {
-        let view_a = inputs[0]
-            .1
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        let view_b = inputs[1]
-            .1
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let view_a = inputs[0].create_view(&wgpu::TextureViewDescriptor::default());
+        let view_b = inputs[1].create_view(&wgpu::TextureViewDescriptor::default());
 
         let uniforms = Uniforms {
             mode: self.mode,
@@ -200,8 +196,7 @@ mod tests {
         let mut node = BlendNode::new(&spec, &harness.gpu).unwrap();
         let tex_a = harness.constant_texture([0.3, 0.0, 0.0, 1.0]);
         let tex_b = harness.constant_texture([0.0, 0.5, 0.0, 1.0]);
-        let inputs: &[(String, &wgpu::Texture)] =
-            &[("a".to_string(), &tex_a), ("b".to_string(), &tex_b)];
+        let inputs: &[&wgpu::Texture] = &[&tex_a, &tex_b];
         let stats = harness.cook(&mut node, inputs, FrameAudioFeatures::default(), 0.0);
         insta::assert_snapshot!(stats);
     }

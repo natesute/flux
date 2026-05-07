@@ -16,11 +16,9 @@ A truthful list of what is and isn't implemented. If you're an AI agent or a con
 - [x] Node types: `solid`, `gradient`
 
 ### Stubbed / not yet built
-- [ ] Most useful node types (see below)
-- [ ] Live audio input (cpal not yet a dependency; deferred to v0.4)
-- [ ] Realtime preview window
-- [ ] Custom-shader node (load arbitrary `.wgsl` from project dir)
-- [ ] Snapshot tests for nodes
+- [ ] Live audio input (mic / line-in into the audio analysis path).
+      `cpal` is now a dependency for output; reusing it for input is
+      a small extension.
 
 ## v0.2 — A useful node library
 
@@ -52,10 +50,11 @@ Goal: enough nodes that you can produce something that resembles a Klsr-style au
 
 ## v0.4 — Workflow polish
 
-- [x] `flux preview` subcommand opens a winit window and live-renders the project. v1 reads audio for features but does **not** play it back through speakers — wall-clock time loops the audio file.
-- Audio playback in preview (cpal — pulls in alsa-sys on Linux)
-- Hot-reload of shader files
-- Better error messages for malformed projects
+- [x] `flux preview` subcommand opens a winit window with an embedded egui inspector (sliders, color pickers, audio bindings, add/delete nodes, input wiring, save/snapshot/save-as, screenshot, record-to-mp4). The editing source-of-truth is always the on-disk `.ron`, so AI agents and the inspector edit the same file.
+- [x] Hot reload — file watcher polls the project file and any referenced shader/LUT every ~100 ms; rebuild is param-only on the fast path so feedback trails survive slider drags.
+- [x] Audio playback in preview via cpal output.
+- Hot-reload of shader files (already covered for `custom_shader`; built-in node shaders are `include_str!`'d at compile time and won't reload without a rebuild).
+- Better error messages for malformed projects.
 
 ## v0.5 — Maybe
 
@@ -67,7 +66,6 @@ Goal: enough nodes that you can produce something that resembles a Klsr-style au
 
 These are explicit non-goals:
 
-- A node-graph GUI editor (separate project if it happens)
 - Plugin marketplace or any kind of monetization
 - Windows-only or Mac-only features (must work on at least Linux + macOS + Windows)
 - Cloning every TouchDesigner operator. Pick the 30 that matter, do them well.

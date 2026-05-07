@@ -46,7 +46,7 @@ impl Graph {
         // Validate all referenced inputs exist.
         for (name, node) in &nodes {
             for input in node.input_refs() {
-                if !nodes.contains_key(&input) {
+                if !nodes.contains_key(input) {
                     return Err(anyhow!(
                         "node `{}` references unknown input node `{}`",
                         name,
@@ -111,7 +111,7 @@ impl Graph {
             if live_node.kind() != spec.kind {
                 return false;
             }
-            if live_node.input_refs() != spec.inputs {
+            if live_node.input_refs() != spec.inputs.as_slice() {
                 return false;
             }
         }
@@ -159,32 +159,35 @@ impl Graph {
     }
 
     /// Evaluate every node for the current frame, in topological order.
+    ///
+    /// We reuse a single `Vec<&wgpu::Texture>` across nodes for the
+    /// per-cook input list — capacity grows once to the largest node's
+    /// fan-in and stays. No per-frame allocations in the inner loop.
     pub fn cook_frame(&mut self, ctx: &mut FrameContext) -> Result<()> {
         // We need to feed each node references to its input textures. To
         // satisfy the borrow checker we look up textures via the read-only
-        // `textures` map while mutably borrowing one node at a time.
+        // `textures` map while mutably borrowing one node at a time. The
+        // per-cook input slice is a scratch Vec we clear and reuse so the
+        // hot loop doesn't allocate.
+        let mut input_textures: Vec<&wgpu::Texture> = Vec::new();
         for id in &self.eval_order {
             let node = self
                 .nodes
                 .get_mut(id)
                 .expect("eval_order references existing node");
 
-            // Gather input textures by name.
-            let input_refs: Vec<(String, &wgpu::Texture)> = node
-                .input_refs()
-                .into_iter()
-                .map(|name| {
-                    let tex = self.textures.get(&name).expect("validated at graph build");
-                    (name, tex)
-                })
-                .collect();
+            input_textures.clear();
+            for name in node.input_refs() {
+                let tex = self.textures.get(name).expect("validated at graph build");
+                input_textures.push(tex);
+            }
 
             let output_tex = self
                 .textures
                 .get(id)
                 .expect("output texture allocated for every node");
 
-            node.cook(ctx, &input_refs, output_tex)
+            node.cook(ctx, &input_textures, output_tex)
                 .with_context(|| format!("cooking node `{id}`"))?;
         }
         Ok(())
@@ -221,7 +224,7 @@ fn topo_sort(nodes: &IndexMap<NodeId, BoxedNode>, sink: &str) -> Result<Vec<Node
         if reachable.insert(n.clone()) {
             if let Some(node) = nodes.get(&n) {
                 for input in node.input_refs() {
-                    stack.push(input);
+                    stack.push(input.clone());
                 }
             }
         }
@@ -242,7 +245,10 @@ fn topo_sort(nodes: &IndexMap<NodeId, BoxedNode>, sink: &str) -> Result<Vec<Node
     let mut dependents: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
     for name in &reachable {
         for input in nodes.get(name).unwrap().input_refs() {
-            dependents.entry(input).or_default().push(name.clone());
+            dependents
+                .entry(input.clone())
+                .or_default()
+                .push(name.clone());
         }
     }
 

@@ -90,8 +90,8 @@ impl Node for NoiseNode {
         "noise"
     }
 
-    fn input_refs(&self) -> Vec<String> {
-        self.inputs.clone()
+    fn input_refs(&self) -> &[String] {
+        &self.inputs
     }
 
     fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
@@ -108,7 +108,7 @@ impl Node for NoiseNode {
     fn cook(
         &mut self,
         ctx: &FrameContext,
-        _inputs: &[(String, &wgpu::Texture)],
+        _inputs: &[&wgpu::Texture],
         output: &wgpu::Texture,
     ) -> Result<()> {
         let uniforms = Uniforms {

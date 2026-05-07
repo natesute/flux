@@ -142,8 +142,8 @@ impl Node for ColorGradeNode {
         "color_grade"
     }
 
-    fn input_refs(&self) -> Vec<String> {
-        self.inputs.clone()
+    fn input_refs(&self) -> &[String] {
+        &self.inputs
     }
 
     fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
@@ -164,12 +164,10 @@ impl Node for ColorGradeNode {
     fn cook(
         &mut self,
         ctx: &FrameContext,
-        inputs: &[(String, &wgpu::Texture)],
+        inputs: &[&wgpu::Texture],
         output: &wgpu::Texture,
     ) -> Result<()> {
-        let view_in = inputs[0]
-            .1
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let view_in = inputs[0].create_view(&wgpu::TextureViewDescriptor::default());
         let view_lut = self
             .lut_texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -274,7 +272,7 @@ mod tests {
         .unwrap();
         let mut node = ColorGradeNode::new(&spec, Path::new("."), &harness.gpu).unwrap();
         let src = harness.constant_texture([0.5, 0.25, 0.75, 1.0]);
-        let inputs: &[(String, &wgpu::Texture)] = &[("src".to_string(), &src)];
+        let inputs: &[&wgpu::Texture] = &[&src];
         let stats = harness.cook(&mut node, inputs, FrameAudioFeatures::default(), 0.0);
         insta::assert_snapshot!(stats);
     }

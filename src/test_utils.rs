@@ -110,7 +110,7 @@ impl TestHarness {
     pub fn cook_to_pixels(
         &self,
         node: &mut dyn Node,
-        inputs: &[(String, &wgpu::Texture)],
+        inputs: &[&wgpu::Texture],
         audio: FrameAudioFeatures,
         time: f32,
     ) -> Result<Vec<u8>> {
@@ -137,7 +137,7 @@ impl TestHarness {
     pub fn cook(
         &self,
         node: &mut dyn Node,
-        inputs: &[(String, &wgpu::Texture)],
+        inputs: &[&wgpu::Texture],
         audio: FrameAudioFeatures,
         time: f32,
     ) -> ImageStats {

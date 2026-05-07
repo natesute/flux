@@ -152,8 +152,8 @@ impl Node for CustomShaderNode {
         "custom_shader"
     }
 
-    fn input_refs(&self) -> Vec<String> {
-        self.inputs.clone()
+    fn input_refs(&self) -> &[String] {
+        &self.inputs
     }
 
     fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
@@ -176,7 +176,7 @@ impl Node for CustomShaderNode {
     fn cook(
         &mut self,
         ctx: &FrameContext,
-        inputs: &[(String, &wgpu::Texture)],
+        inputs: &[&wgpu::Texture],
         output: &wgpu::Texture,
     ) -> Result<()> {
         let uniforms = StockUniforms {
@@ -197,7 +197,7 @@ impl Node for CustomShaderNode {
         // Build texture views ahead of the bind group so they outlive it.
         let views: Vec<wgpu::TextureView> = inputs
             .iter()
-            .map(|(_, tex)| tex.create_view(&wgpu::TextureViewDescriptor::default()))
+            .map(|tex| tex.create_view(&wgpu::TextureViewDescriptor::default()))
             .collect();
 
         let mut entries = vec![
@@ -316,7 +316,7 @@ fn fs_main(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
 "#;
         let mut node = CustomShaderNode::from_source(source, 1, &harness.gpu).unwrap();
         let src = harness.constant_texture([0.5, 0.25, 0.75, 1.0]);
-        let inputs: &[(String, &wgpu::Texture)] = &[("src".to_string(), &src)];
+        let inputs: &[&wgpu::Texture] = &[&src];
         let stats = harness.cook(&mut node, inputs, FrameAudioFeatures::default(), 0.0);
         insta::assert_snapshot!(stats);
     }

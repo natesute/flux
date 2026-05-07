@@ -181,8 +181,8 @@ impl Node for FeedbackNode {
         "feedback"
     }
 
-    fn input_refs(&self) -> Vec<String> {
-        self.inputs.clone()
+    fn input_refs(&self) -> &[String] {
+        &self.inputs
     }
 
     fn update_params(&mut self, spec: &NodeSpec) -> Result<()> {
@@ -198,7 +198,7 @@ impl Node for FeedbackNode {
     fn cook(
         &mut self,
         ctx: &FrameContext,
-        inputs: &[(String, &wgpu::Texture)],
+        inputs: &[&wgpu::Texture],
         output: &wgpu::Texture,
     ) -> Result<()> {
         self.ensure_history(ctx.gpu, ctx.width, ctx.height);
@@ -215,9 +215,7 @@ impl Node for FeedbackNode {
             history_tex.create_view(&wgpu::TextureViewDescriptor::default())
         };
 
-        let current_view = inputs[0]
-            .1
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let current_view = inputs[0].create_view(&wgpu::TextureViewDescriptor::default());
 
         let uniforms = Uniforms {
             decay: self.decay.resolve_scalar(&ctx.audio),
@@ -314,7 +312,7 @@ mod tests {
         .unwrap();
         let mut node = FeedbackNode::new(&spec, &harness.gpu).unwrap();
         let src = harness.constant_texture([0.5, 0.25, 0.75, 1.0]);
-        let inputs: &[(String, &wgpu::Texture)] = &[("src".to_string(), &src)];
+        let inputs: &[&wgpu::Texture] = &[&src];
         let stats = harness.cook(&mut node, inputs, FrameAudioFeatures::default(), 0.0);
         insta::assert_snapshot!(stats);
     }

@@ -20,8 +20,10 @@
 //!    file. The watcher fires, the rebuild runs, and the loop closes.
 //!    Both flows use the same code path.
 //!
-//! Audio playback isn't wired (v1 reads the file for features only); a
-//! wall clock advances time and wraps so loops loop.
+//! Audio plays through the system's default output device via
+//! `audio_player::AudioPlayer`. Time is driven by a wall clock, so a
+//! brief stall in the visual loop won't desync the audio — it just
+//! means a frame skip.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

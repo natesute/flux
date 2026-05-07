@@ -64,8 +64,9 @@ pub trait Node: Send {
 
     /// Names of input nodes, in the order they should be passed to `cook`.
     /// Pulled from the project file at construction; cached here so the
-    /// graph can topologically sort without re-parsing.
-    fn input_refs(&self) -> Vec<String>;
+    /// graph can topologically sort without re-parsing. Returned by
+    /// borrow so the per-frame cook loop doesn't allocate.
+    fn input_refs(&self) -> &[String];
 
     /// Re-read parameter values from a fresh spec **without** recreating
     /// any GPU resources. The caller (`Graph::update_params`) guarantees
@@ -78,11 +79,12 @@ pub trait Node: Send {
     /// will fall back to a full rebuild.
     fn update_params(&mut self, spec: &NodeSpec) -> Result<()>;
 
-    /// Render this node's output for the current frame.
+    /// Render this node's output for the current frame. `inputs` holds
+    /// the upstream textures in the order declared by `input_refs()`.
     fn cook(
         &mut self,
         ctx: &FrameContext,
-        inputs: &[(String, &wgpu::Texture)],
+        inputs: &[&wgpu::Texture],
         output: &wgpu::Texture,
     ) -> Result<()>;
 }
