@@ -119,6 +119,7 @@ pub fn ui(ctx: &egui::Context, project: &mut Project, env: &mut InspectorEnv) ->
             // ---- add-node palette --------------------------------------
             ui.add_space(6.0);
             let existing_names: Vec<String> = project.nodes.keys().cloned().collect();
+            let current_output = project.output.clone();
             ui.horizontal(|ui| {
                 ui.label("add");
                 egui::ComboBox::from_id_salt("add_node")
@@ -128,7 +129,11 @@ pub fn ui(ctx: &egui::Context, project: &mut Project, env: &mut InspectorEnv) ->
                             if ui.selectable_label(false, kind).clicked() {
                                 let name = unique_name(&project.nodes, kind);
                                 actions.push(TopologyAction::Add {
-                                    inputs: default_inputs_for(kind, &existing_names),
+                                    inputs: default_inputs_for(
+                                        kind,
+                                        &existing_names,
+                                        &current_output,
+                                    ),
                                     name,
                                     kind: kind.to_string(),
                                 });
@@ -280,21 +285,31 @@ fn apply_action(project: &mut Project, action: TopologyAction) {
     match action {
         TopologyAction::Add { name, kind, inputs } => {
             // Pre-populate the new node's params from the central
-            // defaults registry (`nodes::default_params_for`). This is
-            // why sliders show up the moment you hit "add" — without
-            // it, params is empty and the inspector has nothing to
-            // render until you've manually typed each key into the .ron.
+            // defaults registry (`nodes::default_params_for`). Without
+            // this, the spec's params map is empty and the inspector
+            // has nothing to render until you've manually typed each
+            // key into the .ron.
             let params = nodes::default_params_for(&kind);
             project.nodes.insert(
-                name,
+                name.clone(),
                 NodeSpec {
-                    kind,
+                    kind: kind.clone(),
                     inputs,
                     params,
                 },
             );
+            // Splice the new node into the visible chain by making it
+            // the project's output. Without this the topo sort drops
+            // it (it would be unreachable from the previous output)
+            // and "add a node" looks like it does nothing. Inputs
+            // were smart-defaulted to the previous output upstream,
+            // so the chain ends up: …→ old_output → new_node.
+            // The user can change the output back via the dropdown.
+            tracing::info!("inspector: added node `{name}` (kind={kind}); output → `{name}`");
+            project.output = name;
         }
         TopologyAction::Delete { name } => {
+            tracing::info!("inspector: deleted node `{name}`");
             project.nodes.shift_remove(&name);
             // Scrub stale references so a delete leaves the graph in a
             // valid state instead of a "unknown input node" error.
@@ -324,26 +339,33 @@ fn expected_input_count(kind: &str) -> usize {
     }
 }
 
-/// Pick reasonable default input wiring for a freshly added node:
-/// most-recent existing node for single-input ops, the two most recent
-/// for two-input ops. Returns `vec![]` when there's nothing to wire to,
-/// in which case the user has to add inputs by hand once they have
-/// other nodes.
-fn default_inputs_for(kind: &str, existing: &[String]) -> Vec<String> {
+/// Pick reasonable default input wiring for a freshly added node.
+///
+/// 1-input post effects wire to the *current output* — so adding a
+/// `bloom` over an existing chain produces `…→ old_output → new_bloom`,
+/// and once the caller flips `project.output` to the new node the
+/// chain is intact. 2-input compositors get current_output as the
+/// first input and the second-most-recent node as the second.
+/// Variable-input nodes (custom_shader) start empty.
+fn default_inputs_for(kind: &str, existing: &[String], current_output: &str) -> Vec<String> {
     let count = expected_input_count(kind);
     if count == 0 || existing.is_empty() {
         return Vec::new();
     }
-    let last = existing.last().unwrap().clone();
+    let cur = current_output.to_string();
     match count {
-        1 => vec![last],
+        1 => vec![cur],
         2 => {
-            let prev = if existing.len() >= 2 {
-                existing[existing.len() - 2].clone()
-            } else {
-                last.clone()
-            };
-            vec![prev, last]
+            // Pick a second input that isn't the same as `cur` if we
+            // can; otherwise fall back to duplicating it (useful for
+            // a self-blend as a starting point).
+            let other = existing
+                .iter()
+                .rev()
+                .find(|n| n.as_str() != current_output)
+                .cloned()
+                .unwrap_or_else(|| cur.clone());
+            vec![cur, other]
         }
         n => existing.iter().rev().take(n).rev().cloned().collect(),
     }
@@ -612,5 +634,109 @@ fn string_options(kind: &str, name: &str) -> &'static [&'static str] {
         ("blend", "mode") => &["over", "add", "multiply", "screen", "mix"],
         ("displace", "mode") => &["derivative", "vector"],
         _ => &[],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::project::Project;
+
+    /// Build a one-node project for tests.
+    fn one_node_project() -> Project {
+        let mut nodes = IndexMap::new();
+        nodes.insert(
+            "src".to_string(),
+            NodeSpec {
+                kind: "noise".to_string(),
+                inputs: vec![],
+                params: nodes::default_params_for("noise"),
+            },
+        );
+        Project {
+            version: 1,
+            width: 64,
+            height: 64,
+            fps: 30,
+            tone_map: crate::project::ToneMap::Aces,
+            nodes,
+            output: "src".to_string(),
+            source_dir: std::path::PathBuf::from("."),
+        }
+    }
+
+    /// The bug Nathan hit: adding a node didn't insert it into the
+    /// visible chain. apply_action must (a) wire its inputs from the
+    /// current output, (b) re-point project.output at the new node,
+    /// and (c) populate sensible defaults so its sliders render.
+    #[test]
+    fn add_inserts_into_chain_and_becomes_output() {
+        let mut project = one_node_project();
+        let action = TopologyAction::Add {
+            name: "post".to_string(),
+            kind: "bloom".to_string(),
+            inputs: default_inputs_for("bloom", &["src".to_string()], "src"),
+        };
+        apply_action(&mut project, action);
+
+        // New node exists, with defaults populated.
+        let post = project.nodes.get("post").expect("new node added");
+        assert_eq!(post.kind, "bloom");
+        assert_eq!(post.inputs, vec!["src".to_string()]);
+        assert!(
+            post.params.contains_key("threshold"),
+            "bloom should get its threshold default so the inspector renders a slider"
+        );
+        assert!(post.params.contains_key("intensity"));
+        assert!(post.params.contains_key("radius"));
+
+        // Project output now points at the new node — without this,
+        // topo sort drops it and adding does nothing visible.
+        assert_eq!(project.output, "post");
+    }
+
+    /// Adding a 0-input generator (e.g. a fresh raymarch scene) takes
+    /// over as the output with no input wiring needed.
+    #[test]
+    fn add_generator_becomes_output_with_no_inputs() {
+        let mut project = one_node_project();
+        let action = TopologyAction::Add {
+            name: "scene".to_string(),
+            kind: "raymarch".to_string(),
+            inputs: default_inputs_for("raymarch", &["src".to_string()], "src"),
+        };
+        apply_action(&mut project, action);
+        let scene = project.nodes.get("scene").unwrap();
+        assert_eq!(scene.kind, "raymarch");
+        assert!(scene.inputs.is_empty(), "raymarch is a 0-input generator");
+        assert_eq!(project.output, "scene");
+    }
+
+    /// Deleting a node scrubs references in other nodes' inputs lists.
+    #[test]
+    fn delete_scrubs_dangling_references() {
+        let mut project = one_node_project();
+        // Add a 1-input post node wired to `src`.
+        apply_action(
+            &mut project,
+            TopologyAction::Add {
+                name: "post".to_string(),
+                kind: "bloom".to_string(),
+                inputs: vec!["src".to_string()],
+            },
+        );
+        // Delete `src`. The `post` node's inputs should no longer
+        // reference it.
+        apply_action(
+            &mut project,
+            TopologyAction::Delete {
+                name: "src".to_string(),
+            },
+        );
+        let post = project.nodes.get("post").unwrap();
+        assert!(
+            !post.inputs.contains(&"src".to_string()),
+            "delete should have scrubbed `src` out of post.inputs"
+        );
     }
 }

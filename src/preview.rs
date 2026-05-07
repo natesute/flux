@@ -615,6 +615,11 @@ impl PreviewApp {
             // crash the next launch.
             match engine.rebuild_graph(&self.project) {
                 Ok(()) => {
+                    tracing::debug!(
+                        "inspector edit applied; project now has {} nodes, output=`{}`",
+                        self.project.nodes.len(),
+                        self.project.output
+                    );
                     self.pending_save = Some(Instant::now());
                 }
                 Err(e) => {
