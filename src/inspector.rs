@@ -70,6 +70,7 @@ pub fn ui(ctx: &egui::Context, project: &mut Project) -> bool {
 
             // ---- add-node palette --------------------------------------
             ui.add_space(6.0);
+            let existing_names: Vec<String> = project.nodes.keys().cloned().collect();
             ui.horizontal(|ui| {
                 ui.label("add");
                 egui::ComboBox::from_id_salt("add_node")
@@ -79,6 +80,7 @@ pub fn ui(ctx: &egui::Context, project: &mut Project) -> bool {
                             if ui.selectable_label(false, kind).clicked() {
                                 let name = unique_name(&project.nodes, kind);
                                 actions.push(TopologyAction::Add {
+                                    inputs: default_inputs_for(kind, &existing_names),
                                     name,
                                     kind: kind.to_string(),
                                 });
@@ -152,29 +154,80 @@ pub fn ui(ctx: &egui::Context, project: &mut Project) -> bool {
 /// Mutations to the `nodes` IndexMap collected during the UI pass and
 /// applied after — avoids borrow conflicts with the per-node iteration.
 enum TopologyAction {
-    Add { name: String, kind: String },
-    Delete { name: String },
+    Add {
+        name: String,
+        kind: String,
+        inputs: Vec<String>,
+    },
+    Delete {
+        name: String,
+    },
 }
 
 fn apply_action(project: &mut Project, action: TopologyAction) {
     match action {
-        TopologyAction::Add { name, kind } => {
+        TopologyAction::Add { name, kind, inputs } => {
             project.nodes.insert(
                 name,
                 NodeSpec {
                     kind,
-                    inputs: Vec::new(),
+                    inputs,
                     params: IndexMap::new(),
                 },
             );
         }
         TopologyAction::Delete { name } => {
             project.nodes.shift_remove(&name);
-            // Anyone still pointing at the deleted node now references a
-            // ghost. The graph rebuild will surface that as an error
-            // ("unknown input node `…`"), which the preview keeps the old
-            // graph for. Cleaner UX would be to scrub references; a v2.
+            // Scrub stale references so a delete leaves the graph in a
+            // valid state instead of a "unknown input node" error.
+            for (_, spec) in project.nodes.iter_mut() {
+                spec.inputs.retain(|i| i != &name);
+            }
         }
+    }
+}
+
+/// Number of inputs a node of `kind` requires. Used to auto-wire newly
+/// added nodes to sensible defaults so adding a `feedback` doesn't
+/// silently fail with "requires exactly 1 input."
+fn expected_input_count(kind: &str) -> usize {
+    match kind {
+        "blend" | "displace" => 2,
+        "feedback"
+        | "bloom"
+        | "transform"
+        | "levels"
+        | "chromatic_aberration"
+        | "grain"
+        | "color_grade" => 1,
+        // 0-input generators (solid/gradient/noise/raymarch/instance) and
+        // custom_shader (variable; user wires by hand).
+        _ => 0,
+    }
+}
+
+/// Pick reasonable default input wiring for a freshly added node:
+/// most-recent existing node for single-input ops, the two most recent
+/// for two-input ops. Returns `vec![]` when there's nothing to wire to,
+/// in which case the user has to add inputs by hand once they have
+/// other nodes.
+fn default_inputs_for(kind: &str, existing: &[String]) -> Vec<String> {
+    let count = expected_input_count(kind);
+    if count == 0 || existing.is_empty() {
+        return Vec::new();
+    }
+    let last = existing.last().unwrap().clone();
+    match count {
+        1 => vec![last],
+        2 => {
+            let prev = if existing.len() >= 2 {
+                existing[existing.len() - 2].clone()
+            } else {
+                last.clone()
+            };
+            vec![prev, last]
+        }
+        n => existing.iter().rev().take(n).rev().cloned().collect(),
     }
 }
 

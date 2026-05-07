@@ -410,13 +410,21 @@ impl PreviewApp {
         });
         if inspector_changed.get() {
             // Apply the edit to the running engine immediately so the next
-            // frame reflects it. Without this, sliders only show up after
-            // the debounced disk save + watcher reload — i.e. they appear
-            // to do nothing while you drag.
-            if let Err(e) = engine.rebuild_graph(&self.project) {
-                tracing::warn!("inspector edit: rebuild failed (keeping old): {e:#}");
+            // frame reflects it. If the rebuild fails (e.g. you added a
+            // node whose required inputs aren't wired yet, or a custom
+            // shader path doesn't resolve), keep both the old graph
+            // *and* the old on-disk file — saving a broken project would
+            // crash the next launch. The in-memory project keeps your
+            // edit so you can fix it via the inspector and the next
+            // valid edit will commit.
+            match engine.rebuild_graph(&self.project) {
+                Ok(()) => {
+                    self.pending_save = Some(Instant::now());
+                }
+                Err(e) => {
+                    tracing::warn!("inspector edit: rebuild failed (not saved): {e:#}");
+                }
             }
-            self.pending_save = Some(Instant::now());
         }
 
         graphics

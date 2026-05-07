@@ -9,9 +9,9 @@
             type: "raymarch",
             inputs: [],
             params: {
-                "cam_z": 13.6,
+                "cam_z": 13.7,
                 "radius": 3.15,
-                "displacement": 6.02,
+                "displacement": 2.005,
                 "sky_top": [
                     0.4,
                     0.5,
