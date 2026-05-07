@@ -38,6 +38,7 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
 use crate::audio::AudioTrack;
+use crate::audio_player::AudioPlayer;
 use crate::engine::{Engine, GpuContext};
 use crate::inspector;
 use crate::project::Project;
@@ -98,6 +99,9 @@ struct PreviewApp {
     project: Project,
     project_path: PathBuf,
     audio: AudioTrack,
+    /// Owned cpal output stream; dropped when the app exits. `None` if
+    /// the host has no default output device.
+    _audio_player: Option<AudioPlayer>,
     engine: Option<Engine>,
     graphics: Option<GraphicsState>,
     start: Instant,
@@ -130,10 +134,20 @@ impl PreviewApp {
         let audio = AudioTrack::load(audio_path)?;
         let audio_duration = audio.duration_seconds().max(0.001);
         let tracked = collect_tracked_files(project, project_path);
+        // Best-effort audio playback. Failure (no device, unsupported
+        // format, etc.) shouldn't kill the preview — just log and run silent.
+        let _audio_player = match AudioPlayer::try_new(&audio) {
+            Ok(player) => player,
+            Err(e) => {
+                tracing::warn!("audio playback disabled: {e:#}");
+                None
+            }
+        };
         Ok(Self {
             project: project.clone(),
             project_path: project_path.to_path_buf(),
             audio,
+            _audio_player,
             engine: None,
             graphics: None,
             start: Instant::now(),
@@ -395,6 +409,13 @@ impl PreviewApp {
             });
         });
         if inspector_changed.get() {
+            // Apply the edit to the running engine immediately so the next
+            // frame reflects it. Without this, sliders only show up after
+            // the debounced disk save + watcher reload — i.e. they appear
+            // to do nothing while you drag.
+            if let Err(e) = engine.rebuild_graph(&self.project) {
+                tracing::warn!("inspector edit: rebuild failed (keeping old): {e:#}");
+            }
             self.pending_save = Some(Instant::now());
         }
 

@@ -82,6 +82,16 @@ impl AudioTrack {
         self.samples.len() as f32 / self.sample_rate as f32
     }
 
+    /// Mono PCM samples in [-1, 1]. Exposed so the preview audio player
+    /// can stream them to the output device.
+    pub fn samples(&self) -> &[f32] {
+        &self.samples
+    }
+
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
     /// Compute features for the frame at the given time (seconds). The
     /// analysis window is centered on `time` and sized by `FFT_SIZE`, so
     /// the rendering framerate doesn't enter the calculation.

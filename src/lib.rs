@@ -4,6 +4,7 @@
 //! [`project`] (to define a piece) and [`engine`] (to render it).
 
 pub mod audio;
+pub mod audio_player;
 pub mod engine;
 pub mod inspector;
 pub mod nodes;

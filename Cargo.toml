@@ -19,8 +19,7 @@ glam = { version = "0.29", features = ["bytemuck"] }
 # Audio
 hound = "3.5"            # WAV loading
 rustfft = "6.2"          # FFT
-# cpal will be added back in v0.4 for realtime preview/live mode.
-# It pulls in alsa-sys on Linux, which needs libasound2-dev installed.
+cpal = "0.15"            # audio output (preview playback)
 
 # Image / encoding
 image = { version = "0.25", default-features = false, features = ["png"] }
