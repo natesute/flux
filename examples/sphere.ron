@@ -10,8 +10,12 @@
             inputs: [],
             params: {
                 "cam_z": 13.7,
-                "radius": 3.15,
-                "displacement": 2.005,
+                "radius": 0.25,
+                "displacement": (
+                    feature: bass,
+                    scale: -10.74,
+                    bias: 3.555,
+                ),
                 "sky_top": [
                     0.4,
                     0.5,
@@ -37,6 +41,21 @@
                 "radius": -4.4,
             },
         ),
+        "levels": (
+            type: "levels",
+            inputs: [
+                "scene",
+            ],
+            params: {},
+        ),
+        "displace": (
+            type: "displace",
+            inputs: [
+                "glow",
+                "levels",
+            ],
+            params: {},
+        ),
     },
-    output: "glow",
+    output: "scene",
 )

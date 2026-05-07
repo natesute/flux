@@ -40,9 +40,10 @@ pub use transform::TransformNode;
 use std::path::Path;
 
 use anyhow::{anyhow, Result};
+use indexmap::IndexMap;
 
 use crate::engine::{FrameContext, GpuContext};
-use crate::project::NodeSpec;
+use crate::project::{NodeSpec, ParamValue};
 
 /// A node in the dataflow graph.
 ///
@@ -123,6 +124,126 @@ pub fn node_from_spec(
         }
     };
     Ok(node)
+}
+
+/// Canonical default parameter set for a node `kind`. Mirrors what each
+/// node's `new()` falls back to when a param is missing from the spec.
+///
+/// Used by the GUI inspector for two things: pre-populating a freshly
+/// added node so its sliders appear immediately, and merging defaults
+/// over a partially-specified .ron at render time so existing pieces'
+/// hidden defaults become visible knobs. Keep this in sync with the
+/// `scalar_param("foo", DEFAULT)?` calls in each node file — there's a
+/// debug assertion at the bottom that flags drift.
+pub fn default_params_for(kind: &str) -> IndexMap<String, ParamValue> {
+    let mut p = IndexMap::new();
+    let n = |x: f32| ParamValue::Number(x);
+    let c = |r: f32, g: f32, b: f32, a: f32| ParamValue::Color(vec![r, g, b, a]);
+    let s = |x: &str| ParamValue::String(x.to_string());
+    match kind {
+        "solid" => {
+            p.insert("color".into(), c(1.0, 1.0, 1.0, 1.0));
+            p.insert("intensity".into(), n(1.0));
+        }
+        "gradient" => {
+            p.insert("inner_color".into(), c(1.0, 1.0, 1.0, 1.0));
+            p.insert("outer_color".into(), c(0.0, 0.0, 0.0, 1.0));
+            p.insert("radius".into(), n(0.5));
+            p.insert("intensity".into(), n(1.0));
+        }
+        "noise" => {
+            p.insert("color_a".into(), c(0.0, 0.0, 0.0, 1.0));
+            p.insert("color_b".into(), c(1.0, 1.0, 1.0, 1.0));
+            p.insert("scale".into(), n(3.0));
+            p.insert("speed".into(), n(0.3));
+            p.insert("octaves".into(), n(4.0));
+            p.insert("contrast".into(), n(1.0));
+            p.insert("intensity".into(), n(1.0));
+        }
+        "feedback" => {
+            p.insert("decay".into(), n(0.92));
+            p.insert("zoom".into(), n(1.01));
+            p.insert("rotation".into(), n(0.0));
+            p.insert("offset_x".into(), n(0.0));
+            p.insert("offset_y".into(), n(0.0));
+            p.insert("mix_in".into(), n(1.0));
+        }
+        "blend" => {
+            p.insert("mode".into(), s("over"));
+            p.insert("factor".into(), n(1.0));
+            p.insert("opacity".into(), n(1.0));
+        }
+        "bloom" => {
+            p.insert("threshold".into(), n(0.7));
+            p.insert("intensity".into(), n(1.0));
+            p.insert("radius".into(), n(4.0));
+        }
+        "transform" => {
+            p.insert("offset_x".into(), n(0.0));
+            p.insert("offset_y".into(), n(0.0));
+            p.insert("rotation".into(), n(0.0));
+            p.insert("scale_x".into(), n(1.0));
+            p.insert("scale_y".into(), n(1.0));
+        }
+        "levels" => {
+            p.insert("gain".into(), n(1.0));
+            p.insert("brightness".into(), n(0.0));
+            p.insert("contrast".into(), n(1.0));
+            p.insert("saturation".into(), n(1.0));
+        }
+        "displace" => {
+            p.insert("amount".into(), n(0.05));
+            p.insert("mode".into(), s("derivative"));
+        }
+        "chromatic_aberration" => {
+            p.insert("amount".into(), n(0.005));
+            p.insert("center_x".into(), n(0.5));
+            p.insert("center_y".into(), n(0.5));
+        }
+        "grain" => {
+            p.insert("amount".into(), n(0.04));
+            p.insert("scale".into(), n(1.0));
+        }
+        "color_grade" => {
+            p.insert("intensity".into(), n(1.0));
+        }
+        "raymarch" => {
+            p.insert("cam_x".into(), n(0.0));
+            p.insert("cam_y".into(), n(0.5));
+            p.insert("cam_z".into(), n(3.0));
+            p.insert("look_x".into(), n(0.0));
+            p.insert("look_y".into(), n(0.0));
+            p.insert("look_z".into(), n(0.0));
+            p.insert("fov".into(), n(0.9));
+            p.insert("radius".into(), n(1.0));
+            p.insert("displacement".into(), n(0.05));
+            p.insert("light_x".into(), n(0.5));
+            p.insert("light_y".into(), n(0.8));
+            p.insert("light_z".into(), n(0.3));
+            p.insert("sky_top".into(), c(0.4, 0.6, 0.9, 1.0));
+            p.insert("sky_bottom".into(), c(0.05, 0.05, 0.1, 1.0));
+        }
+        "instance" => {
+            p.insert("cam_x".into(), n(4.0));
+            p.insert("cam_y".into(), n(3.0));
+            p.insert("cam_z".into(), n(6.0));
+            p.insert("look_x".into(), n(0.0));
+            p.insert("look_y".into(), n(0.0));
+            p.insert("look_z".into(), n(0.0));
+            p.insert("fov".into(), n(0.8));
+            p.insert("base_scale".into(), n(0.25));
+            p.insert("audio_drive".into(), n(1.0));
+            p.insert("light_x".into(), n(0.5));
+            p.insert("light_y".into(), n(0.8));
+            p.insert("light_z".into(), n(0.4));
+            p.insert("rim_color".into(), c(1.0, 0.7, 0.4, 1.0));
+        }
+        "custom_shader" => {
+            p.insert("path".into(), s("shaders/your_shader.wgsl"));
+        }
+        _ => {}
+    }
+    p
 }
 
 /// Names of all registered node types. Used by `flux nodes`.

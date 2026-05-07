@@ -279,18 +279,12 @@ enum TopologyAction {
 fn apply_action(project: &mut Project, action: TopologyAction) {
     match action {
         TopologyAction::Add { name, kind, inputs } => {
-            // Pre-populate params for kinds that require a non-default
-            // value to even instantiate. Empty path string surfaces as a
-            // text-edit in the inspector so the user can fill it in;
-            // until they do, the engine will refuse the rebuild and the
-            // .ron stays unsaved (so the broken state can't be persisted).
-            let mut params = IndexMap::new();
-            if kind == "custom_shader" {
-                params.insert(
-                    "path".to_string(),
-                    ParamValue::String("shaders/your_shader.wgsl".to_string()),
-                );
-            }
+            // Pre-populate the new node's params from the central
+            // defaults registry (`nodes::default_params_for`). This is
+            // why sliders show up the moment you hit "add" — without
+            // it, params is empty and the inspector has nothing to
+            // render until you've manually typed each key into the .ron.
+            let params = nodes::default_params_for(&kind);
             project.nodes.insert(
                 name,
                 NodeSpec {
@@ -427,8 +421,34 @@ fn input_ui(ui: &mut egui::Ui, self_name: &str, spec: &mut NodeSpec, all_names: 
 fn node_params_ui(ui: &mut egui::Ui, spec: &mut NodeSpec) -> bool {
     let mut changed = false;
     let kind = spec.kind.clone();
-    for (param_name, value) in spec.params.iter_mut() {
-        if param_ui(ui, &kind, param_name, value) {
+    let defaults = nodes::default_params_for(&kind);
+
+    // Show every param the node *can* take, defaulting to the canonical
+    // value when the spec hasn't bound it explicitly. This is what makes
+    // sliders appear immediately for newly-added nodes (their spec is
+    // empty until the user touches something) and for older .ron files
+    // that only listed a few values explicitly. Anything the user
+    // touches gets written back to spec.params; untouched defaults stay
+    // implicit so the on-disk file doesn't suddenly gain hundreds of
+    // explicit baseline values just because someone opened it.
+    let mut ordered_keys: Vec<String> = defaults.keys().cloned().collect();
+    for k in spec.params.keys() {
+        if !ordered_keys.contains(k) {
+            ordered_keys.push(k.clone());
+        }
+    }
+
+    for key in ordered_keys {
+        let Some(mut value) = spec
+            .params
+            .get(&key)
+            .cloned()
+            .or_else(|| defaults.get(&key).cloned())
+        else {
+            continue;
+        };
+        if param_ui(ui, &kind, &key, &mut value) {
+            spec.params.insert(key, value);
             changed = true;
         }
     }
