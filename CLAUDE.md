@@ -103,6 +103,19 @@ If you're collaborating with the user on visuals while their preview window is o
 - If the user reports the preview didn't update, the most likely cause is a parse or compile error — check `tracing` logs. The engine keeps the old graph on reload failure, so edits with errors don't crash the window.
 - Feedback node history is currently lost on reload. Pieces relying on long trails will visibly restart.
 
+## Launching the app
+
+When the user asks to "open it", "boot it up", or "run it for me":
+
+```
+cargo run --release                                                    # launcher window (pick project + audio in-app)
+cargo run --release -- preview examples/<piece>.ron --audio <clip.wav> # straight into a specific piece
+```
+
+Launch as a background task so the session stays free, then watch the tracing output for panics or shader compile errors before declaring it running. `cargo run --release -- check <project.ron>` validates a project without opening a window.
+
+This is the opposite case from the hot-reload workflow above: launch when asked to; once the window is open, go back to editing files and letting the watcher reload them.
+
 ## What agents should freely do
 
 - Add new node types following the conventions above.
