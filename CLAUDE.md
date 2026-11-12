@@ -1,6 +1,6 @@
 # Working on flux with AI agents
 
-This document is the contract between the human owner of this repo and any AI coding agent (Claude Code, etc.) working on it. Read this before making changes.
+This document is the contract between the human owner of this repo and any AI coding agent (Claude Code, Codex, etc.) working on it. Read this before making changes.
 
 ## Mental model in one paragraph
 
@@ -10,38 +10,11 @@ If you understand that paragraph, you can extend the engine.
 
 ## Project structure
 
-```
-src/
-  main.rs              CLI entry point. Argument parsing, top-level commands.
-  lib.rs               Crate root. Re-exports public types.
-  engine/              Core graph evaluation, GPU context, frame loop.
-    mod.rs
-    context.rs         GPU device/queue ownership.
-    graph.rs           Graph type, topological cooking.
-    frame.rs           Per-frame state.
-  audio/               Audio loading and analysis.
-    mod.rs
-    analysis.rs        FFT, beat detection, feature extraction.
-  nodes/               One file per node type. Each implements `Node` trait.
-    mod.rs             Registry and dispatch.
-    audio_in.rs
-    gradient.rs
-    noise.rs
-    feedback.rs
-    blend.rs
-    bloom.rs
-    ...
-  project/             Project file loading and validation.
-    mod.rs
-    schema.rs          RON-deserializable types.
-  output/              Encoding to video.
-    mod.rs
-    ffmpeg.rs          Pipe frames to FFmpeg.
-
-shaders/               WGSL shaders. Built into the binary via include_str!.
-examples/              Example project files and a test audio clip.
-docs/                  ROADMAP, ARCHITECTURE, NODE_REFERENCE.
-```
+- `src/main.rs` is the CLI entry point; `src/lib.rs` is the crate root.
+- `src/engine/` holds graph evaluation, the GPU context and the frame loop. `src/audio/` loads and analyses audio. `src/project/` loads and validates RON project files. `src/output/` encodes video through FFmpeg.
+- `src/nodes/` has one file per node type, each implementing the `Node` trait; `mod.rs` is the registry and dispatch.
+- The app's interface modules sit at the top of `src/` (launcher, preview, graph view, inspector, timeline, menu, history, audio player). List the directory for the current set rather than trusting a list here.
+- `shaders/` holds WGSL built into the binary via `include_str!`. `examples/` has example projects and a test audio clip. `docs/` has ROADMAP, ARCHITECTURE and NODE_REFERENCE.
 
 ## Conventions
 
@@ -61,7 +34,7 @@ Aim for ~100 lines per node file. If a node is getting bigger, it's probably act
 
 ### Shaders
 
-WGSL only for built-in nodes. A future custom-shader node will accept user shaders by path.
+WGSL only for built-in nodes. User shaders load by path through the custom-shader node (`src/nodes/custom_shader.rs`).
 
 Shader inputs use a fixed binding convention defined in `docs/SHADER_CONVENTIONS.md`. Don't deviate without updating that doc and every shader.
 
@@ -90,7 +63,7 @@ Each node should have a unit test that cooks it with a deterministic input and s
 
 ## On the GUI
 
-A GUI is welcome. It must be in-process Rust (egui or similar) so it shares the wgpu device with the engine — no IPC, no separate language, no per-frame copy through the OS. Anything that adds latency between "user moves slider" and "preview pixel changes" is the wrong shape. Live param tweaks should land in the running engine on the next frame.
+The GUI is in-process Rust (egui) and must stay that way, so it shares the wgpu device with the engine — no IPC, no separate language, no per-frame copy through the OS. Anything that adds latency between "user moves slider" and "preview pixel changes" is the wrong shape. Live param tweaks should land in the running engine on the next frame.
 
 ## Agent-edit workflow
 
