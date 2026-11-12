@@ -171,7 +171,7 @@ impl ImageStats {
         let mut max = [0u8; 4];
         let mut nonblack = 0u32;
 
-        for px in rgba.chunks_exact(4) {
+        for px in rgba.as_chunks::<4>().0 {
             for c in 0..4 {
                 sum[c] += px[c] as u64;
                 min[c] = min[c].min(px[c]);
